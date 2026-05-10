@@ -11,12 +11,14 @@ def cargar_datos_maestros():
     
     df_eo = pd.read_excel("EO.xlsx")
     df_pp = pd.read_excel("PP.xlsx")
-    
+    df_csd = pd.read_excel("Cartera_Servicios_PP_2027_Desagregado_SCF-2.xls",engine='xlrd',skiprows=1)
+            
     # Limpieza de nombres de columnas
     df_cmn.columns = df_cmn.columns.str.strip()
     df_eo.columns = df_eo.columns.str.strip()
     df_pp.columns = df_pp.columns.str.strip()
-      
+    df_csd.columns= df_csd.columns.str.strip()
+          
     # Jerarquía por código (ADN del 01.XX.yy)
     df_cmn['CC_PADRE_CALCULADO'] = df_cmn['AUSUARIA_COD'].str.split('.').str[1]
     df_eo['CC Padre'] = df_eo['CC Padre'].astype(str).str.zfill(2)
@@ -43,7 +45,79 @@ def cargar_datos_maestros():
     df_unido['Categoria'] = df_unido['Categoria'].fillna('OTROS / NO CLASIFICADO')
     df_unido['Responsable'] = df_unido['Responsable'].fillna('NO ASIGNADO')
 
+    # Procesamiento de Cartera de Servicios para extraer diccionarios
+    if len(df_csd.columns) >= 3:
+        # Programa (columna 0)
+        prog_series = df_csd.iloc[:, 0].dropna().astype(str)
+        dict_prog = {val[:4].strip(): val[4:].strip(' -') for val in prog_series.unique() if len(val) >= 4}
+        dict_prog['9001'] = "ACCIONES CENTRALES"
+        dict_prog['9002'] = "ASIGNACIONES PRESUPUESTARIAS QUE NO RESULTAN EN PRODUCTOS (APNOP)"
+
+        # Mapeamos Programa a df_unido si su categoria esta vacia o es OTROS
+        mask_otros = df_unido['Categoria'] == 'OTROS / NO CLASIFICADO'
+        mapped_prog = df_unido.loc[mask_otros, 'PROGRAMA_LIMPIO'].map(dict_prog)
+        df_unido.loc[mask_otros, 'Categoria'] = mapped_prog.fillna('OTROS / NO CLASIFICADO')
+
+        # Producto/Proyecto (columna 1)
+        prod_series = df_csd.iloc[:, 1].dropna().astype(str)
+        dict_prod = {val[:7].strip(): f"{val[:7].strip()} - {val[7:].strip(' -')}" for val in prod_series.unique() if len(val) >= 7}
+
+        # Actividad (columna 2)
+        act_series = df_csd.iloc[:, 2].dropna().astype(str)
+        dict_act = {val[:7].strip(): f"{val[:7].strip()} - {val[7:].strip(' -')}" for val in act_series.unique() if len(val) >= 7}
+        
+        # Formatear columnas en df_unido
+        df_unido['PROD_PROY_STR'] = df_unido['PROD_PROY'].astype(str).str.replace(r'\.0$', '', regex=True)
+        df_unido['ACT_AI_OBR_STR'] = df_unido['ACT_AI_OBR'].astype(str).str.replace(r'\.0$', '', regex=True)
+        
+        df_unido['PROD_PROY_FULL'] = df_unido['PROD_PROY_STR'].map(dict_prod).fillna(df_unido['PROD_PROY_STR'])
+        df_unido['ACT_AI_OBR_FULL'] = df_unido['ACT_AI_OBR_STR'].map(dict_act).fillna(df_unido['ACT_AI_OBR_STR'])
+    else:
+        df_unido['PROD_PROY_FULL'] = df_unido['PROD_PROY'].astype(str)
+        df_unido['ACT_AI_OBR_FULL'] = df_unido['ACT_AI_OBR'].astype(str)
+
     return df_unido
+
+@st.cache_data
+def cargar_poi():
+    import glob
+    import os
+    try:
+        # Buscar el archivo POI más reciente en la carpeta
+        archivos_poi = glob.glob("POI_PORACTIVIDADOPERATIVA_ANUAL_*.xls")
+        if not archivos_poi:
+            return pd.DataFrame(columns=['Categoria ID', 'Categoria', 'Producto ID', 'Actividad Presupuestal ID', 'Fn(SE) Total'])
+            
+        archivo_reciente = max(archivos_poi, key=os.path.getctime)
+        
+        # El archivo XLS del POI es en realidad un HTML exportado
+        df_poi_raw = pd.read_html(archivo_reciente, header=0)[0]
+        df_poi_raw.columns = df_poi_raw.columns.str.strip()
+        
+        # Filtrar solo registros activos
+        if 'Activo AO' in df_poi_raw.columns:
+            df_poi_activos = df_poi_raw[df_poi_raw['Activo AO'] == 'SI'].copy()
+        else:
+            df_poi_activos = df_poi_raw.copy()
+            
+        # Filtrar el año máximo que exista en la columna POI
+        if 'POI' in df_poi_activos.columns:
+            año_poi = str(df_poi_activos['POI'].max())
+            df_poi_activos = df_poi_activos[df_poi_activos['POI'].astype(str) == año_poi]
+            
+        # Estandarizar IDs a 7 dígitos para que crucen con el CMN
+        df_poi_activos['Categoria ID'] = df_poi_activos['Categoria ID'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(4)
+        df_poi_activos['Producto ID'] = df_poi_activos['Producto ID'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(7)
+        df_poi_activos['Actividad Presupuestal ID'] = df_poi_activos['Actividad Presupuestal ID'].astype(str).str.replace(r'\.0$', '', regex=True).str.zfill(7)
+        
+        # Convertir monto ejecutado
+        df_poi_activos['Fn(SE) Total'] = pd.to_numeric(df_poi_activos['Fn(SE) Total'], errors='coerce').fillna(0)
+        
+        # Agrupar a nivel de Programa, Producto y Actividad Presupuestal
+        df_poi_resumen = df_poi_activos.groupby(['Categoria ID', 'Categoria', 'Producto ID', 'Producto', 'Actividad Presupuestal ID', 'Actividad Presupuestal'])['Fn(SE) Total'].sum().reset_index()
+        return df_poi_resumen
+    except Exception as e:
+        return pd.DataFrame(columns=['Categoria ID', 'Categoria', 'Producto ID', 'Producto', 'Actividad Presupuestal ID', 'Actividad Presupuestal', 'Fn(SE) Total'])
 
 def ejecutar_analisis():
     try:
@@ -98,7 +172,7 @@ def ejecutar_analisis():
         st.markdown("---")
         
         # --- PESTAÑAS ESTRATÉGICAS ---
-        tab_uo, tab_prog = st.tabs(["🏛️ Vista por Órgano", "🎯 Vista por Programa (BID)"])
+        tab_uo, tab_prog, tab_poi = st.tabs(["🏛️ Vista por Órgano", "🎯 Vista por Programa/Categoría Presupuestal)", "⚖️ Consistencia POI vs CMN"])
 
         with tab_uo:
             opciones_ano = {
@@ -136,14 +210,45 @@ def ejecutar_analisis():
                 'MONT_TOT_ANO4': f'MONTO {ano4}'
             })
             formato_moneda = {col: "S/ {:,.2f}" for col in df_det_uo.columns if 'MONTO' in col}
-            styled_df_det = df_det_uo.sort_values(f'MONTO {ano1}', ascending=False).style.format(formato_moneda)\
+            # Ordenamos y reseteamos el índice para que coincida exactamente con la fila seleccionada
+            df_det_uo = df_det_uo.sort_values(f'MONTO {ano1}', ascending=False).reset_index(drop=True)
+            
+            styled_df_det = df_det_uo.style.format(formato_moneda)\
                 .set_properties(subset=cols_montos, **{'text-align': 'right'})\
                 .set_table_styles(estilos_montos, overwrite=False)
-            st.table(styled_df_det)
+            
+            # DataFrame interactivo
+            evento = st.dataframe(styled_df_det, use_container_width=True, on_select="rerun", selection_mode="single-row")
+            
+            if len(evento.selection.rows) > 0:
+                idx_seleccionado = evento.selection.rows[0]
+                usu_cod = df_det_uo.iloc[idx_seleccionado]['USUARIO']
+                usu_nombre = df_det_uo.iloc[idx_seleccionado]['DESCRIPCIÓN']
+                
+                st.markdown("---")
+                st.subheader(f"📦 Ítems registrados por: {usu_nombre}")
+                
+                df_items = df_act[(df_act['UO'] == uo_sel) & (df_act['AUSUARIA_COD'] == usu_cod)]
+                cols_items = ['TIPO_BIEN', 'NOMBRE_ITEM', 'UNIDAD_MEDIDA', 'PRECIO_UNIT', 'CANT_TOT_ANO1', 'MONT_TOT_ANO1']
+                df_items_disp = df_items[cols_items].copy().rename(columns={
+                    'TIPO_BIEN': 'TIPO',
+                    'NOMBRE_ITEM': 'DESCRIPCIÓN DEL ÍTEM',
+                    'UNIDAD_MEDIDA': 'U.M.',
+                    'PRECIO_UNIT': 'PRECIO UNIT.',
+                    'CANT_TOT_ANO1': f'CANTIDAD {ano1}',
+                    'MONT_TOT_ANO1': f'MONTO {ano1}'
+                })
+                
+                st.dataframe(
+                    df_items_disp.sort_values(f'MONTO {ano1}', ascending=False)\
+                                 .style.format({f'MONTO {ano1}': "S/ {:,.2f}", 'PRECIO UNIT.': "S/ {:,.2f}"}),
+                    use_container_width=True
+                )
 
         with tab_prog:
             st.subheader("🎯 Auditoría por Categoría Presupuestal")
             st.info("Navegue desde el Programa Presupuestal hasta el detalle de la Actividad Operativa.")
+            st.warning("**[D.L. Nº 1440, 13.6](https://cdn.www.gob.pe/uploads/document/file/206025/DL_1440.pdf?v=1594248074):** El Presupuesto del Sector Público se estructura, gestiona y evalúa bajo la lógica del Presupuesto por Resultado (PpR), la cual constituye una estrategia de gestión pública que vincula los recursos a productos y resultados medibles a favor de la población. Cada una de las fases del proceso presupuestario es realizada bajo la lógica del PpR, a través de sus instrumentos: programas presupuestales, seguimiento, evaluación e incentivos presupuestarios.", icon="⚠️")
 
             # Filtro opcional para ocultar programas 9xxx en esta vista
             if not st.checkbox("Incluir Categorias Especiales (9xxx)", value=False):
@@ -172,7 +277,7 @@ def ejecutar_analisis():
             styled_df_p = df_p_disp.style.format(formato_moneda_p)\
                 .set_properties(subset=cols_montos + ['%'], **{'text-align': 'right'})\
                 .set_table_styles(estilos_con_porcentaje, overwrite=False)
-            st.table(styled_df_p)
+            st.dataframe(styled_df_p, use_container_width=True)
 
             st.markdown("---")
             st.subheader("🔍 Explorador de Actividades")
@@ -185,12 +290,12 @@ def ejecutar_analisis():
                 prog_cod = prog_sel.split(" - ")[0]
                 df_filtro_p = df_act[df_act['PROGRAMA_LIMPIO'] == prog_cod]
                 
-                prod_sel = st.selectbox("2. Seleccione Producto/Proyecto:", sorted(df_filtro_p['PROD_PROY'].unique()))
-                df_filtro_prod = df_filtro_p[df_filtro_p['PROD_PROY'] == prod_sel]
+                prod_sel = st.selectbox("2. Seleccione Producto/Proyecto:", sorted(df_filtro_p['PROD_PROY_FULL'].unique()))
+                df_filtro_prod = df_filtro_p[df_filtro_p['PROD_PROY_FULL'] == prod_sel]
 
             with col2:
-                act_sel = st.selectbox("3. Seleccione Actividad (AI/OBR):", sorted(df_filtro_prod['ACT_AI_OBR'].unique()))
-                df_filtro_act = df_filtro_prod[df_filtro_prod['ACT_AI_OBR'] == act_sel]
+                act_sel = st.selectbox("3. Seleccione Actividad (AI/OBR):", sorted(df_filtro_prod['ACT_AI_OBR_FULL'].unique()))
+                df_filtro_act = df_filtro_prod[df_filtro_prod['ACT_AI_OBR_FULL'] == act_sel]
 
             # 4. Resultado Final: El detalle de la Actividad Operativa
             st.write(f"**Detalle de Actividades Operativas para: {act_sel}**")
@@ -210,7 +315,7 @@ def ejecutar_analisis():
             styled_df_final = df_final_tab_disp.sort_values(f'MONTO {ano1}', ascending=False).style.format(formato_moneda_f)\
                 .set_properties(subset=cols_montos, **{'text-align': 'right'})\
                 .set_table_styles(estilos_montos, overwrite=False)
-            st.table(styled_df_final)
+            st.dataframe(styled_df_final, use_container_width=True)
             
             # Un extra: ¿Cuánto suma este nivel de detalle?
             suma_ano1 = df_final_tab['MONT_TOT_ANO1'].sum()
@@ -225,5 +330,87 @@ def ejecutar_analisis():
                 f"**{ano3}:** S/ {suma_ano3:,.2f} &nbsp;&nbsp;|&nbsp;&nbsp; "
                 f"**{ano4}:** S/ {suma_ano4:,.2f}"
             )
+
+        with tab_poi:
+            st.subheader("⚖️ Consistencia Financiera: POI 2025 vs CMN")
+            st.info(f"Comparación del presupuesto ejecutado en 2025 frente a la proyección de necesidades del CMN ({ano1}) a nivel de Actividad Presupuestal.")
+            
+            with st.expander("📌 Consideraciones Metodológicas (Alcance de los datos)"):
+                st.markdown("""
+                **¡Importante tener en cuenta al analizar esta brecha!**
+                * **Ejecutado POI (2025):** Incluye **toda fuente de financiamiento** y **todas las genéricas de gasto** (Personal, Bienes y Servicios, Equipamiento, etc.).
+                * **Programado CMN (2027):** Solo refleja requerimientos para la fuente **Recursos Ordinarios** y exclusivamente para las genéricas de gasto de **Bienes y Servicios**.
+                * *Nota Adicional:* Este cruce aún no se compara contra la **APM (Asignación Presupuestal Multianual)**, la cual constituye el techo/piso financiero real del que se parte.
+                """)
+            
+            df_poi = cargar_poi()
+            
+            # Agrupar CMN a nivel de Programa, Producto y Actividad
+            cmn_agg = df_act.groupby(['PROGRAMA_LIMPIO', 'Categoria', 'PROD_PROY_STR', 'ACT_AI_OBR_STR', 'PROD_PROY_FULL', 'ACT_AI_OBR_FULL'])[f'MONT_TOT_ANO1'].sum().reset_index()
+            cmn_agg['PROD_PROY_STR'] = cmn_agg['PROD_PROY_STR'].str.zfill(7)
+            cmn_agg['ACT_AI_OBR_STR'] = cmn_agg['ACT_AI_OBR_STR'].str.zfill(7)
+            
+            # Cruce de información
+            df_cruce = pd.merge(cmn_agg, df_poi, left_on=['PROGRAMA_LIMPIO', 'PROD_PROY_STR', 'ACT_AI_OBR_STR'], right_on=['Categoria ID', 'Producto ID', 'Actividad Presupuestal ID'], how='outer')
+            
+            # Limpieza para visualización
+            df_cruce['PROGRAMA_LIMPIO'] = df_cruce['PROGRAMA_LIMPIO'].fillna(df_cruce['Categoria ID'])
+            df_cruce['PROGRAMA_FULL'] = df_cruce['PROGRAMA_LIMPIO'] + " - " + df_cruce['Categoria_x'].fillna(df_cruce['Categoria_y'])
+            
+            df_cruce['PROD_PROY_FULL'] = df_cruce['PROD_PROY_FULL'].fillna(df_cruce['Producto ID'] + " - " + df_cruce['Producto'] + " (Solo en POI)")
+            df_cruce['ACT_AI_OBR_FULL'] = df_cruce['ACT_AI_OBR_FULL'].fillna(df_cruce['Actividad Presupuestal ID'] + " - " + df_cruce['Actividad Presupuestal'] + " (Solo en POI)")
+            df_cruce['Fn(SE) Total'] = df_cruce['Fn(SE) Total'].fillna(0)
+            df_cruce[f'MONT_TOT_ANO1'] = df_cruce[f'MONT_TOT_ANO1'].fillna(0)
+            df_cruce['BRECHA'] = df_cruce[f'MONT_TOT_ANO1'] - df_cruce['Fn(SE) Total']
+            
+            df_cruce_disp = df_cruce[['PROGRAMA_FULL', 'PROD_PROY_FULL', 'ACT_AI_OBR_FULL', 'Fn(SE) Total', f'MONT_TOT_ANO1', 'BRECHA']].rename(columns={
+                'PROGRAMA_FULL': 'PROGRAMA PRESUPUESTAL',
+                'PROD_PROY_FULL': 'PRODUCTO',
+                'ACT_AI_OBR_FULL': 'ACTIVIDAD',
+                'Fn(SE) Total': 'EJECUTADO POI',
+                f'MONT_TOT_ANO1': f'PROGRAMADO CMN {ano1}'
+            })
+            
+            # Alertas rápidas
+            col_a, col_b = st.columns(2)
+            sin_cmn = len(df_cruce[(df_cruce['Fn(SE) Total'] > 0) & (df_cruce[f'MONT_TOT_ANO1'] == 0)])
+            sin_poi = len(df_cruce[(df_cruce['Fn(SE) Total'] == 0) & (df_cruce[f'MONT_TOT_ANO1'] > 0)])
+            
+            col_a.warning(f"⚠️ **{sin_cmn} Actividades** tienen ejecución en el POI pero **CERO** necesidades en el CMN {ano1}.")
+            col_b.info(f"ℹ️ **{sin_poi} Actividades** son nuevas o no tuvieron ejecución en el POI pero piden presupuesto en el CMN {ano1}.")
+            
+            st.markdown("---")
+            st.write("**Detalle del Cruce (Monto Programado vs Monto Ejecutado):**")
+            
+            format_dict = {
+                'EJECUTADO POI': "S/ {:,.2f}",
+                f'PROGRAMADO CMN {ano1}': "S/ {:,.2f}",
+                'BRECHA': "S/ {:,.2f}"
+            }
+            
+            # Formateo de estilo para resaltar la brecha
+            def color_brecha(val):
+                if val < 0:
+                    return 'color: #ff4b4b; font-weight: bold'
+                elif val > 0:
+                    return 'color: #09ab3b; font-weight: bold'
+                return ''
+                
+            # Estilo para resaltar filas que solo existen en el POI
+            def highlight_solo_poi(row):
+                # Usamos un amarillo oscuro/dorado que se lee bien en temas oscuros y claros
+                color = 'color: #e6b800; font-weight: bold' 
+                if "(Solo en POI)" in str(row['PRODUCTO']) or "(Solo en POI)" in str(row['ACTIVIDAD']):
+                    return [color for _ in row]
+                return ['' for _ in row]
+                
+            st.dataframe(
+                df_cruce_disp.sort_values('EJECUTADO POI', ascending=False)
+                .style.format(format_dict)
+                .apply(highlight_solo_poi, axis=1)
+                .map(color_brecha, subset=['BRECHA']),
+                use_container_width=True
+            )
+
     except Exception as e:
         st.error(f"Se detectó un problema: {e}")
