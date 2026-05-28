@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import signal
 import CMN_EG as cmn
+import POI_Dashboard as poi
 
 # --- CONFIGURACIÓN ESTÉTICA ---
 st.set_page_config(page_title="Sistema de Gestión IPRESS", layout="wide")
@@ -19,7 +20,7 @@ with st.sidebar:
     
     opcion = st.radio(
         "Seleccione el Módulo:",
-        ["🏠 Inicio", "📊 Consistencia CMN-CEPLAN", "📈 Indicadores Hospitalarios"]
+        ["🏠 Inicio", "📊 Consistencia CMN-CEPLAN", "� Seguimiento POI", "�📈 Indicadores Hospitalarios"]
     )
     
     # st.markdown("---")
@@ -39,11 +40,14 @@ if opcion == "🏠 Inicio":
     st.write("Este sistema centraliza la información estratégica para la toma de decisiones.")
 
 elif opcion == "📊 Consistencia CMN-CEPLAN":
-    st.header("Análisis de Consistencia de la Programación Multianual")
+    st.header("Análisis de Consistencia Multianual")
     # Aquí es donde llamaremos al motor después
     st.info("Módulo de integración presupuestaria listo para procesar.")
     cmn.ejecutar_analisis()
 
-elif opcion == "📈 Indicadores Hospitalarios":
+elif opcion == "� Seguimiento POI":
+    poi.ejecutar_dashboard_poi()
+
+elif opcion == "�📈 Indicadores Hospitalarios":
     st.header("Histórico de Indicadores (10 años)")
     st.write("⌛ Próximamente: Curvas de tendencia y análisis epidemiológico.")
