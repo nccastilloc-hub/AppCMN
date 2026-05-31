@@ -17,7 +17,7 @@ import os
 # ============================================================================
 
 # Ruta al archivo Excel
-EXCEL_PATH = "POI/Seguimiento metas fisicas POI.xlsx"
+EXCEL_PATH = "Seguimiento metas fisicas POI.xlsx"
 
 # Colores de semáforo
 COLOR_MORADO = "#6f42c1"
