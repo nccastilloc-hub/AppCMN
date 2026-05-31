@@ -1,0 +1,62 @@
+[
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 12:18:45",
+        "ip": "127.0.0.1",
+        "resultado": "fallo"
+    },
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 12:18:46",
+        "ip": "127.0.0.1",
+        "resultado": "fallo"
+    },
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 12:20:06",
+        "ip": "127.0.0.1",
+        "resultado": "fallo"
+    },
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 12:20:07",
+        "ip": "127.0.0.1",
+        "resultado": "fallo"
+    },
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 12:21:46",
+        "ip": "127.0.0.1",
+        "resultado": "exito"
+    },
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 12:27:19",
+        "ip": "127.0.0.1",
+        "resultado": "exito"
+    },
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 12:29:43",
+        "ip": "127.0.0.1",
+        "resultado": "exito"
+    },
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 12:44:19",
+        "ip": "127.0.0.1",
+        "resultado": "exito"
+    },
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 13:15:29",
+        "ip": "127.0.0.1",
+        "resultado": "exito"
+    },
+    {
+        "username": "admin",
+        "fecha_hora": "2026-05-31 13:18:52",
+        "ip": "127.0.0.1",
+        "resultado": "exito"
+    }
+]

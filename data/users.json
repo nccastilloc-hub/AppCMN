@@ -1,0 +1,11 @@
+{
+    "usuarios": [
+        {
+            "username": "admin",
+            "nombre": "Administrador",
+            "area": "TI",
+            "rol": "admin",
+            "password_hash": "9b841968f952acd89807c2290958218c4cf808b763a3b5c0d1aaeca0a393a563"
+        }
+    ]
+}
