@@ -213,10 +213,10 @@ def load_data(excel_path):
             return "Sin ejecución", COLOR_GRIS
         elif pct == 0:
             return "GRIS", COLOR_GRIS
-        elif pct < 0.85:
-            return "ROJO - DEFICIENTE", COLOR_ROJO
-        elif pct < 0.90:
-            return "AMARILLO - REGULAR", COLOR_AMARILLO
+        elif pct < 0.75:
+            return "ROJO - BAJO", COLOR_ROJO
+        elif pct < 0.95:
+            return "AMARILLO - MEDIO", COLOR_AMARILLO
         elif pct <= 1.00:
             return "VERDE - BUENO", COLOR_VERDE
         else:
@@ -285,10 +285,10 @@ def get_resumen(df):
             return "Sin ejecución", COLOR_GRIS
         elif pct == 0:
             return "GRIS", COLOR_GRIS
-        elif pct < 0.85:
-            return "ROJO - DEFICIENTE", COLOR_ROJO
-        elif pct < 0.90:
-            return "AMARILLO - REGULAR", COLOR_AMARILLO
+        elif pct < 0.75:
+            return "ROJO - BAJO", COLOR_ROJO
+        elif pct < 0.95:
+            return "AMARILLO - MEDIO", COLOR_AMARILLO
         elif pct <= 1.00:
             return "VERDE - BUENO", COLOR_VERDE
         else:
@@ -327,10 +327,10 @@ def get_resumen_cc_responsable(df):
             return "Sin ejecución", COLOR_GRIS
         elif pct == 0:
             return "GRIS", COLOR_GRIS
-        elif pct < 0.85:
-            return "ROJO - DEFICIENTE", COLOR_ROJO
-        elif pct < 0.90:
-            return "AMARILLO - REGULAR", COLOR_AMARILLO
+        elif pct < 0.75:
+            return "ROJO - BAJO", COLOR_ROJO
+        elif pct < 0.95:
+            return "AMARILLO - MEDIO", COLOR_AMARILLO
         elif pct <= 1.00:
             return "VERDE - BUENO", COLOR_VERDE
         else:
@@ -394,7 +394,14 @@ def ejecutar_dashboard_poi():
     
     month_names = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", 
                    "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-    
+
+    # --- OBTENER FECHA DEL ARCHIVO (NUEVO) ---
+    if os.path.exists(EXCEL_PATH):
+        mod_time = os.path.getmtime(EXCEL_PATH)
+        fecha_archivo = datetime.fromtimestamp(mod_time).strftime('%d/%m/%Y %H:%M')
+    else:
+        fecha_archivo = datetime.now().strftime('%d/%m/%Y %H:%M')
+
     # --- HEADER ---
     st.header("📊 Seguimiento de Metas Físicas POI")
     
@@ -402,11 +409,10 @@ def ejecutar_dashboard_poi():
     with col1:
         st.markdown(f"**Año:** {year} | **Período:** Ene - {month_names[last_month]}")
     with col2:
-        st.markdown(f"**Última actualización:** {datetime.now().strftime('%d/%m/%Y')}")
+        st.markdown(f"**Última actualización:** {fecha_archivo}")
     with col3:
         if os.path.exists(EXCEL_PATH):
-            mod_time = os.path.getmtime(EXCEL_PATH)
-            st.caption(f"📁 Archivo: {datetime.fromtimestamp(mod_time).strftime('%H:%M:%S')}")
+            st.caption(f"📁 Archivo: {os.path.basename(EXCEL_PATH)}")
     with col4:
         if st.button("🔄 Recargar", help="Forzar recarga de datos desde el archivo"):
             st.cache_data.clear()
@@ -449,9 +455,9 @@ def ejecutar_dashboard_poi():
         
         opciones_semaforo = {
             "🔍 Ver Todo el Universo POI": "TODOS",
-            "🟢 En Meta (Bueno)": COLOR_VERDE,
-            "🟡 En Riesgo (Regular)": COLOR_AMARILLO,
-            "🔴 Crítico (Deficiente)": COLOR_ROJO,
+            "🟢 En Meta (Alto)": COLOR_VERDE,
+            "🟡 En Riesgo (Medio)": COLOR_AMARILLO,
+            "🔴 Crítico (Bajo)": COLOR_ROJO,
             "🟣 En Exceso (Sobreejecución)": COLOR_MORADO,
             "⚪ Sin Ejecución Registrada": COLOR_GRIS
         }
@@ -481,7 +487,7 @@ def ejecutar_dashboard_poi():
             categorias_unicas = []
         
         sel_categoria = st.selectbox(
-            "🔍 Seleccione una Categoría para evaluar el detalle (Drilldown):",
+            "🔍 Seleccione una Categoría/Programa para evaluar el detalle (Drilldown):",
             options=["-- Ver Resumen Seleccionado (Todas) --"] + categorias_unicas
         )
         
@@ -567,29 +573,34 @@ def ejecutar_dashboard_poi():
         
         # Tabla interactiva
         st.markdown("---")
-        st.subheader("📋 Carpintería Operativa: Localizador de Inconsistencias")
+        st.subheader("📋 Control de Actividades Operativas")
         
         if resumen_gerencial.empty:
             st.info("No existen actividades operativas registradas bajo los filtros seleccionados.")
         else:
-            st.markdown("💡 *Haga clic en **cualquier fila** de la tabla para cargar instantáneamente su radiografía y evolución mensual abajo.*")
+            st.markdown("💡 *Seleccione una actividad para ver su detalle mensual y su evolución mensual abajo.*")
             
             columnas_visibles = [c for c in ["Categoria ID", "Producto ID", "Actividad Operativa", "Unidad de Medida", "F(SE) Acum", "F(RE) Acum", "% Ejecución", "Estado", "Color"] if c in resumen_gerencial.columns]
             tabla_operativa = resumen_gerencial[columnas_visibles].copy()
             
             if "Categoria ID" in tabla_operativa.columns:
                 tabla_operativa = tabla_operativa.sort_values(by=["Categoria ID"])
+                # Renombrar columnas para mejor legibilidad
+                tabla_operativa = tabla_operativa.rename(columns={
+                "F(SE) Acum": "Ejec. Acum",
+                "F(RE) Acum": "Prog. Acum"
+            })
             
             tabla_formateada = tabla_operativa.copy()
-            tabla_formateada["F(SE) Acum"] = tabla_formateada["F(SE) Acum"].apply(lambda x: f"{x:,.0f}")
-            tabla_formateada["F(RE) Acum"] = tabla_formateada["F(RE) Acum"].apply(lambda x: f"{x:,.0f}")
-            tabla_formateada["% Ejecución"] = tabla_formateada["% Ejecución"].apply(lambda x: f"{x*100:.1f}%")
+            tabla_formateada["Ejec. Acum"] = tabla_formateada["Ejec. Acum"].apply(lambda x: f"{x:,.0f}")
+            tabla_formateada["Prog. Acum"] = tabla_formateada["Prog. Acum"].apply(lambda x: f"{x:,.0f}")
+            tabla_formateada["% Ejecución"] = tabla_formateada["% Ejecución"].apply(lambda x: f"{x*100:.1f}")  # Sin %
             tabla_formateada["Estado"] = tabla_formateada.apply(formatear_estado, axis=1)
             
             if "Color" in tabla_formateada.columns:
                 tabla_formateada = tabla_formateada.drop(columns=["Color"])
             
-            evento_seleccion = st.dataframe(
+                evento_seleccion = st.dataframe(
                 tabla_formateada,
                 use_container_width=True,
                 height=250,
@@ -599,7 +610,8 @@ def ejecutar_dashboard_poi():
                     "Estado": st.column_config.TextColumn("Estado", help="Estado del semáforo", width="medium")
                 }
             )
-            
+
+            # --- DETERMINAR ACTIVIDAD SELECCIONADA ---
             if evento_seleccion and "selection" in evento_seleccion and evento_seleccion["selection"]["rows"]:
                 fila_index = evento_seleccion["selection"]["rows"][0]
                 if fila_index < len(tabla_operativa):
@@ -608,77 +620,77 @@ def ejecutar_dashboard_poi():
                     sel_actividad = tabla_operativa.iloc[0]["Actividad Operativa"]
             else:
                 sel_actividad = tabla_operativa.iloc[0]["Actividad Operativa"]
-            
-                # --- DETALLE MENSUAL CON COLOR DINÁMICO ---
-                st.markdown("---")
-                st.markdown(f"### 📅 Evolución Mensual Automatizada")
-                st.markdown(f"**Actividad Auditada:** {sel_actividad}")
 
-                # Obtener información de la actividad seleccionada
-                df_actividad_seleccionada = df[df["Actividad Operativa"] == sel_actividad]
-                info_act = resumen_gerencial[resumen_gerencial["Actividad Operativa"] == sel_actividad].iloc[0]
+            # --- DETALLE MENSUAL CON COLOR DINÁMICO ---
+            st.markdown("---")
+            st.markdown(f"### 📅 Evolución Mensual Automatizada")
+            st.markdown(f"**Actividad Auditada:** {sel_actividad}")
 
-                # Métricas
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Unidad de Medida", info_act["Unidad de Medida"])
-                c2.metric("Programado Acum. F(RE)", f"{info_act['F(RE) Acum']:,.0f}")
-                c3.metric("Ejecutado Acum. F(SE)", f"{info_act['F(SE) Acum']:,.0f}")
-                c4.metric("Cumplimiento Real", f"{info_act['% Ejecución']*100:.1f}%")
+            # Obtener información de la actividad seleccionada
+            df_actividad_seleccionada = df[df["Actividad Operativa"] == sel_actividad]
+            info_act = resumen_gerencial[resumen_gerencial["Actividad Operativa"] == sel_actividad].iloc[0]
 
-                # Preparar datos del gráfico
-                mes_labels = month_names[1:len(fse_cols)+1]
-                valores_se = [df_actividad_seleccionada[c].sum() for c in fse_cols]
-                valores_re = [df_actividad_seleccionada[c].sum() for c in fre_cols]
+            # Métricas
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Unidad de Medida", info_act["Unidad de Medida"])
+            c2.metric("Programado Acum. F(RE)", f"{info_act['F(RE) Acum']:,.0f}")
+            c3.metric("Ejecutado Acum. F(SE)", f"{info_act['F(SE) Acum']:,.0f}")
+            c4.metric("Cumplimiento Real", f"{info_act['% Ejecución']*100:.1f}%")
 
-                # 🔥 COLOR DINÁMICO PARA EL GRÁFICO DE BARRAS
-                color_map_evolucion = {
-                    "TODOS": "#28a745",  # Verde por defecto
-                    COLOR_VERDE: COLOR_VERDE,
-                    COLOR_AMARILLO: COLOR_AMARILLO,
-                    COLOR_ROJO: COLOR_ROJO,
-                    COLOR_MORADO: COLOR_MORADO,
-                    COLOR_GRIS: COLOR_GRIS
-                }
-                bar_color_evolucion = color_map_evolucion.get(color_filtrado, "#28a745")
+            # Preparar datos del gráfico
+            mes_labels = month_names[1:len(fse_cols)+1]
+            valores_se = [df_actividad_seleccionada[c].sum() for c in fse_cols]
+            valores_re = [df_actividad_seleccionada[c].sum() for c in fre_cols]
 
-                # Crear gráfico con color dinámico
-                fig_mensual = make_subplots(specs=[[{"secondary_y": True}]])
-                fig_mensual.add_trace(
-                    go.Bar(
-                        x=mes_labels, 
-                        y=valores_se, 
-                        name="Ejecutado Real F(SE)", 
-                        marker_color=bar_color_evolucion  # ← Color dinámico
-                    ), 
-                    secondary_y=False
-                )
-                fig_mensual.add_trace(
-                    go.Scatter(
-                        x=mes_labels, 
-                        y=valores_re, 
-                        name="Programado POI F(RE)", 
-                        mode="lines+markers", 
-                        line=dict(color="#dc3545", width=3)
-                    ), 
-                    secondary_y=False
-                )
+            # 🔥 COLOR DINÁMICO PARA EL GRÁFICO DE BARRAS
+            color_map_evolucion = {
+                "TODOS": "#28a745",
+                COLOR_VERDE: COLOR_VERDE,
+                COLOR_AMARILLO: COLOR_AMARILLO,
+                COLOR_ROJO: COLOR_ROJO,
+                COLOR_MORADO: COLOR_MORADO,
+                COLOR_GRIS: COLOR_GRIS
+            }
+            bar_color_evolucion = color_map_evolucion.get(color_filtrado, "#28a745")
 
-                fig_mensual.update_layout(
-                    hovermode="x unified", 
-                    height=280, 
-                    margin=dict(l=20, r=20, t=20, b=20),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                )
-                st.plotly_chart(fig_mensual, use_container_width=True)
+            # Crear gráfico con color dinámico
+            fig_mensual = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_mensual.add_trace(
+                go.Bar(
+                    x=mes_labels,
+                    y=valores_se,
+                    name="Ejecutado Real F(SE)",
+                    marker_color=bar_color_evolucion
+                ),
+                secondary_y=False
+            )
+            fig_mensual.add_trace(
+                go.Scatter(
+                    x=mes_labels,
+                    y=valores_re,
+                    name="Programado POI F(RE)",
+                    mode="lines+markers",
+                    line=dict(color="#dc3545", width=3)
+                ),
+                secondary_y=False
+            )
 
-                # Mensajes de consistencia
-                pct_act = info_act['% Ejecución']
-                if pct_act < 0.85:
-                    st.error(f"🚨 **Inconsistencia por Subejecución ({pct_act*100:.1f}%):** Esta actividad se encuentra críticamente por debajo de la meta física programada en el POI.")
-                elif pct_act > 1.00:
-                    st.warning(f"⚠️ **Alerta por Sobreejecución ({pct_act*100:.1f}%):** La ejecución física supera lo planificado.")
-                else:
-                    st.success("🟢 **Consistencia Correcta:** Los avances físicos se encuentran alineados con los rangos de tolerancia institucionales.")
+            fig_mensual.update_layout(
+                hovermode="x unified",
+                height=280,
+                margin=dict(l=20, r=20, t=20, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_mensual, use_container_width=True)
+
+            # Mensajes de consistencia
+            pct_act = info_act['% Ejecución']
+            if pct_act < 0.85:
+                st.error(f"🚨 **Inconsistencia por Subejecución ({pct_act*100:.1f}%):** Esta actividad se encuentra críticamente por debajo de la meta física programada en el POI.")
+            elif pct_act > 1.00:
+                st.warning(f"⚠️ **Alerta por Sobreejecución ({pct_act*100:.1f}%):** La ejecución física supera lo planificado.")
+            else:
+                st.success("🟢 **Consistencia Correcta:** Los avances físicos se encuentran alineados con los rangos de tolerancia institucionales.")
   
     
     # ========================================================================
