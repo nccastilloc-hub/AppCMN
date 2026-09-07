@@ -63,6 +63,465 @@ def formatear_estado(row):
     return f"{emoji} {estado_limpio}"
 
 # ============================================================================
+# TABS COMO FUNCIONES INDEPENDIENTES
+# ============================================================================
+
+def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_names, fecha_archivo, year):
+    """
+    Tab 1: Control de Gestión por Categoría Presupuestal.
+    Esta función NO se modifica, solo se extrae del código original.
+    """
+    st.subheader("🎯 Control de Gestión y Consistencia POI")
+    
+    st.markdown("### 🎛️ Filtro de Control de Daños (Enfoque Ejecutivo)")
+    
+    opciones_semaforo = {
+        "🔍 Ver Todo el Universo POI": "TODOS",
+        "🟢 En Meta (Alto)": COLOR_VERDE,
+        "🟡 En Riesgo (Medio)": COLOR_AMARILLO,
+        "🔴 Crítico (Bajo)": COLOR_ROJO,
+        "🟣 En Exceso (Sobreejecución)": COLOR_MORADO,
+        "⚪ Sin Ejecución Registrada": COLOR_GRIS
+    }
+    
+    sel_estado = st.radio(
+        "Seleccione un estado del semáforo para auditar las actividades afectadas:",
+        options=list(opciones_semaforo.keys()),
+        horizontal=True
+    )
+    
+    color_filtrado = opciones_semaforo[sel_estado]
+    
+    if color_filtrado == "TODOS":
+        df_filtrado_semaforo = resumen.copy()
+    else:
+        df_filtrado_semaforo = resumen[resumen["Color"] == color_filtrado]
+        if df_filtrado_semaforo.empty:
+            st.success("✨ **¡Excelente gestión!** No se encontraron actividades operativas en la situación seleccionada.")
+    
+    st.markdown("---")
+    
+    # Selector de categoría
+    if "Categoria ID" in df_filtrado_semaforo.columns and not df_filtrado_semaforo.empty:
+        df_ordenado = df_filtrado_semaforo[['Categoria ID', 'Categoria']].drop_duplicates().sort_values('Categoria ID')
+        categorias_unicas = df_ordenado['Categoria'].dropna().tolist()
+    else:
+        categorias_unicas = []
+    
+    sel_categoria = st.selectbox(
+        "🔍 Seleccione una Categoría/Programa para evaluar el detalle (Drilldown):",
+        options=["-- Ver Resumen Seleccionado (Todas) --"] + categorias_unicas
+    )
+    
+    if sel_categoria == "-- Ver Resumen Seleccionado (Todas) --" or not df_filtrado_semaforo.empty:
+        if sel_categoria == "-- Ver Resumen Seleccionado (Todas) --":
+            resumen_gerencial = df_filtrado_semaforo.copy()
+            es_vista_macro = True
+        else:
+            resumen_gerencial = df_filtrado_semaforo[df_filtrado_semaforo["Categoria"] == sel_categoria]
+            es_vista_macro = False
+    else:
+        resumen_gerencial = pd.DataFrame()
+        es_vista_macro = True
+    
+    # Gráficos
+    if not resumen_gerencial.empty:
+        col1, col2 = st.columns([1, 2.5])
+        
+        with col1:
+            cant_verde = len(resumen_gerencial[resumen_gerencial["Color"] == COLOR_VERDE])
+            cant_amarillo = len(resumen_gerencial[resumen_gerencial["Color"] == COLOR_AMARILLO])
+            cant_rojo = len(resumen_gerencial[resumen_gerencial["Color"] == COLOR_ROJO])
+            cant_morado = len(resumen_gerencial[resumen_gerencial["Color"] == COLOR_MORADO])
+            cant_gris = len(resumen_gerencial[resumen_gerencial["Color"] == COLOR_GRIS])
+            
+            fig_semaforo = go.Figure(data=[
+                go.Bar(
+                    x=["🟢 En Meta", "🟡 En Riesgo", "🔴 Crítico", "🟣 Exceso", "⚫ Sin dato"],
+                    y=[cant_verde, cant_amarillo, cant_rojo, cant_morado, cant_gris],
+                    marker_color=[COLOR_VERDE, COLOR_AMARILLO, COLOR_ROJO, COLOR_MORADO, COLOR_GRIS],
+                    text=[cant_verde, cant_amarillo, cant_rojo, cant_morado, cant_gris],
+                    textposition="auto"
+                )
+            ])
+            fig_semaforo.update_layout(title="Distribución del Segmento Seleccionado", height=300, margin=dict(l=20, r=20, t=40, b=20))
+            st.plotly_chart(fig_semaforo, use_container_width=True)
+        
+        with col2:
+            if es_vista_macro:
+                eje_y = "Categoria"
+                titulo_graf = "% Ejecución por Categoría (Orden Clasificador)"
+                
+                df_graf = resumen_gerencial.groupby(["Categoria ID", "Categoria"]).agg({
+                    "F(SE) Acum": "sum", "F(RE) Acum": "sum"
+                }).reset_index()
+                df_graf["% Ejecución"] = np.where(df_graf["F(RE) Acum"] > 0, (df_graf["F(SE) Acum"] / df_graf["F(RE) Acum"]) * 100, 0)
+                if "Categoria ID" in df_graf.columns:
+                    df_graf = df_graf.sort_values("Categoria ID", ascending=False)
+            else:
+                eje_y = "Producto"
+                titulo_graf = f"Productos en: {sel_categoria[:30]}..."
+                
+                df_graf = resumen_gerencial.groupby(["Producto ID", "Producto"]).agg({
+                    "F(SE) Acum": "sum", "F(RE) Acum": "sum"
+                }).reset_index()
+                df_graf["% Ejecución"] = np.where(df_graf["F(RE) Acum"] > 0, (df_graf["F(SE) Acum"] / df_graf["F(RE) Acum"]) * 100, 0)
+                if "Producto ID" in df_graf.columns:
+                    df_graf = df_graf.sort_values("Producto ID", ascending=False)
+            
+            color_map = {
+                "TODOS": "#17a2b8",
+                COLOR_VERDE: COLOR_VERDE,
+                COLOR_AMARILLO: COLOR_AMARILLO,
+                COLOR_ROJO: COLOR_ROJO,
+                COLOR_MORADO: COLOR_MORADO,
+                COLOR_GRIS: COLOR_GRIS
+            }
+            bar_color = color_map.get(color_filtrado, "#17a2b8")
+            
+            fig_dinamico = go.Figure(data=[
+                go.Bar(
+                    y=df_graf[eje_y].astype(str).str.wrap(30),
+                    x=df_graf["% Ejecución"],
+                    orientation="h",
+                    marker_color=bar_color,
+                    text=[f"{x:.1f}%" for x in df_graf["% Ejecución"]],
+                    textposition="outside"
+                )
+            ])
+            fig_dinamico.add_vline(x=100, line_width=2, line_dash="dash", line_color="gray", opacity=0.7)
+            fig_dinamico.update_layout(
+                title=titulo_graf,
+                xaxis_title="%",
+                xaxis=dict(range=[0, max(df_graf["% Ejecución"]) * 1.15]),
+                margin=dict(l=150, r=50, t=40, b=30),
+                height=380
+            )
+            st.plotly_chart(fig_dinamico, use_container_width=True)
+    
+    # Tabla interactiva
+    st.markdown("---")
+    st.subheader("📋 Control de Actividades Operativas")
+    
+    if resumen_gerencial.empty:
+        st.info("No existen actividades operativas registradas bajo los filtros seleccionados.")
+    else:
+        st.markdown("💡 *Seleccione una actividad para ver su detalle mensual y su evolución mensual abajo.*")
+        
+        columnas_visibles = [c for c in ["Categoria ID", "Producto ID", "Actividad Operativa", "Unidad de Medida", "F(SE) Acum", "F(RE) Acum", "% Ejecución", "Estado", "Color"] if c in resumen_gerencial.columns]
+        tabla_operativa = resumen_gerencial[columnas_visibles].copy()
+        
+        if "Categoria ID" in tabla_operativa.columns:
+            tabla_operativa = tabla_operativa.sort_values(by=["Categoria ID"])
+            tabla_operativa = tabla_operativa.rename(columns={
+                "F(SE) Acum": "Ejec. Acum",
+                "F(RE) Acum": "Prog. Acum"
+            })
+        
+        tabla_formateada = tabla_operativa.copy()
+        tabla_formateada["Ejec. Acum"] = tabla_formateada["Ejec. Acum"].apply(lambda x: f"{x:,.0f}")
+        tabla_formateada["Prog. Acum"] = tabla_formateada["Prog. Acum"].apply(lambda x: f"{x:,.0f}")
+        tabla_formateada["% Ejecución"] = tabla_formateada["% Ejecución"].apply(lambda x: f"{x*100:.1f}")
+        tabla_formateada["Estado"] = tabla_formateada.apply(formatear_estado, axis=1)
+        
+        if "Color" in tabla_formateada.columns:
+            tabla_formateada = tabla_formateada.drop(columns=["Color"])
+        
+        evento_seleccion = st.dataframe(
+            tabla_formateada,
+            use_container_width=True,
+            height=250,
+            on_select="rerun",
+            selection_mode="single-row",
+            column_config={
+                "Estado": st.column_config.TextColumn("Estado", help="Estado del semáforo", width="medium")
+            }
+        )
+        
+        # Determinar actividad seleccionada
+        if evento_seleccion and "selection" in evento_seleccion and evento_seleccion["selection"]["rows"]:
+            fila_index = evento_seleccion["selection"]["rows"][0]
+            if fila_index < len(tabla_operativa):
+                sel_actividad = tabla_operativa.iloc[fila_index]["Actividad Operativa"]
+            else:
+                sel_actividad = tabla_operativa.iloc[0]["Actividad Operativa"]
+        else:
+            sel_actividad = tabla_operativa.iloc[0]["Actividad Operativa"]
+        
+        # Detalle mensual
+        st.markdown("---")
+        st.markdown(f"### 📅 Evolución Mensual Automatizada")
+        st.markdown(f"**Actividad Auditada:** {sel_actividad}")
+        
+        df_actividad_seleccionada = df[df["Actividad Operativa"] == sel_actividad]
+        info_act = resumen_gerencial[resumen_gerencial["Actividad Operativa"] == sel_actividad].iloc[0]
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Unidad de Medida", info_act["Unidad de Medida"])
+        c2.metric("Programado Acum. F(RE)", f"{info_act['F(RE) Acum']:,.0f}")
+        c3.metric("Ejecutado Acum. F(SE)", f"{info_act['F(SE) Acum']:,.0f}")
+        c4.metric("Cumplimiento Real", f"{info_act['% Ejecución']*100:.1f}%")
+        
+        mes_labels = month_names[1:len(fse_cols)+1]
+        valores_se = [df_actividad_seleccionada[c].sum() for c in fse_cols]
+        valores_re = [df_actividad_seleccionada[c].sum() for c in fre_cols]
+        
+        color_map_evolucion = {
+            "TODOS": "#28a745",
+            COLOR_VERDE: COLOR_VERDE,
+            COLOR_AMARILLO: COLOR_AMARILLO,
+            COLOR_ROJO: COLOR_ROJO,
+            COLOR_MORADO: COLOR_MORADO,
+            COLOR_GRIS: COLOR_GRIS
+        }
+        bar_color_evolucion = color_map_evolucion.get(color_filtrado, "#28a745")
+        
+        fig_mensual = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_mensual.add_trace(
+            go.Bar(
+                x=mes_labels,
+                y=valores_se,
+                name="Ejecutado Real F(SE)",
+                marker_color=bar_color_evolucion
+            ),
+            secondary_y=False
+        )
+        fig_mensual.add_trace(
+            go.Scatter(
+                x=mes_labels,
+                y=valores_re,
+                name="Programado POI F(RE)",
+                mode="lines+markers",
+                line=dict(color="#dc3545", width=3)
+            ),
+            secondary_y=False
+        )
+        fig_mensual.update_layout(
+            hovermode="x unified",
+            height=280,
+            margin=dict(l=20, r=20, t=20, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_mensual, use_container_width=True)
+        
+        pct_act = info_act['% Ejecución']
+        if pct_act < 0.85:
+            st.error(f"🚨 **Inconsistencia por Subejecución ({pct_act*100:.1f}%):** Esta actividad se encuentra críticamente por debajo de la meta física programada en el POI.")
+        elif pct_act > 1.00:
+            st.warning(f"⚠️ **Alerta por Sobreejecución ({pct_act*100:.1f}%):** La ejecución física supera lo planificado.")
+        else:
+            st.success("🟢 **Consistencia Correcta:** Los avances físicos se encuentran alineados con los rangos de tolerancia institucionales.")
+
+def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month, month_names, fecha_archivo, year):
+    """
+    Tab 2: Ranking y detalle por Unidad Orgánica (Versión Mejorada).
+    """
+    st.subheader("🏆 Ranking de Gestión por Unidad Orgánica")
+    st.markdown("💡 *Haga clic en cualquier Unidad Orgánica para auditar sus metas físicas asignadas.*")
+
+    # --- 1. FILTRO DE SEMÁFORO ---
+    opciones_semaforo = ["Todos", "🟢 En Meta", "🟡 En Riesgo", "🔴 Crítico", "🟣 Exceso", "⚫ Sin dato"]
+    filtro_seleccionado = st.multiselect(
+        "Filtrar por estado del semáforo",
+        options=opciones_semaforo,
+        default=["Todos"],
+        key="filtro_tab2"
+    )
+
+    # Aplicar filtro
+    if "Todos" not in filtro_seleccionado and filtro_seleccionado:
+        color_map = {
+            "🟢 En Meta": COLOR_VERDE,
+            "🟡 En Riesgo": COLOR_AMARILLO,
+            "🔴 Crítico": COLOR_ROJO,
+            "🟣 Exceso": COLOR_MORADO,
+            "⚫ Sin dato": COLOR_GRIS
+        }
+        colores_seleccionados = [color_map[opt] for opt in filtro_seleccionado if opt in color_map]
+        resumen_cc_filtrado = resumen_cc[resumen_cc["Color"].isin(colores_seleccionados)]
+    else:
+        resumen_cc_filtrado = resumen_cc
+
+    if resumen_cc_filtrado.empty:
+        st.warning("⚠️ No hay unidades orgánicas que coincidan con el filtro seleccionado.")
+        return
+
+    # --- 2. GRÁFICO DE BARRAS HORIZONTAL (Ranking) ---
+    df_cc_graf = resumen_cc_filtrado.copy()
+    df_cc_graf = df_cc_graf.sort_values("% Ejecución", ascending=True)
+
+    fig_cc = go.Figure(data=[
+        go.Bar(
+            y=df_cc_graf["CC Responsable"].astype(str).str.wrap(45),
+            x=df_cc_graf["% Ejecución"] * 100,
+            orientation="h",
+            marker_color=df_cc_graf["Color"],
+            text=[f"{x:.1f}%" for x in df_cc_graf["% Ejecución"] * 100],
+            textposition="outside",
+            textfont=dict(size=10)
+        )
+    ])
+    fig_cc.update_layout(
+        title="% Ejecución por Unidad Orgánica",
+        xaxis_title="%",
+        xaxis=dict(range=[0, max(df_cc_graf["% Ejecución"] * 100) * 1.15]),
+        margin=dict(l=250, r=50, t=40, b=20),
+        height=max(400, len(df_cc_graf) * 25)
+    )
+    st.plotly_chart(fig_cc, use_container_width=True)
+
+    # --- 3. TABLA DE UNIDADES ORGÁNICAS (Seleccionable) ---
+    st.markdown("---")
+    st.subheader("📋 Lista de Unidades Orgánicas")
+
+    tabla_cc = resumen_cc_filtrado[[
+        "CC Responsable ID", "CC Responsable",
+        "F(SE) Acum", "F(RE) Acum", "% Ejecución", "Estado", "Color"
+    ]].copy().sort_values("% Ejecución", ascending=False)
+
+    tabla_cc_formateada = tabla_cc.copy()
+    tabla_cc_formateada["F(SE) Acum"] = tabla_cc_formateada["F(SE) Acum"].apply(lambda x: f"{x:,.0f}")
+    tabla_cc_formateada["F(RE) Acum"] = tabla_cc_formateada["F(RE) Acum"].apply(lambda x: f"{x:,.0f}")
+    tabla_cc_formateada["% Ejecución"] = tabla_cc_formateada["% Ejecución"].apply(lambda x: f"{x*100:.1f}%")
+    tabla_cc_formateada["Estado"] = tabla_cc_formateada.apply(formatear_estado_con_color, axis=1)
+
+    if "Color" in tabla_cc_formateada.columns:
+        tabla_cc_formateada = tabla_cc_formateada.drop(columns=["Color"])
+
+    seleccion_cc = st.dataframe(
+        tabla_cc_formateada,
+        use_container_width=True,
+        height=250,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="df_cc_mejorado",
+        column_config={
+            "Estado": st.column_config.TextColumn("Estado", width="medium")
+        }
+    )
+
+    # --- 4. DETALLE DE UNIDAD SELECCIONADA ---
+    if seleccion_cc and "selection" in seleccion_cc and seleccion_cc["selection"]["rows"]:
+        idx = seleccion_cc["selection"]["rows"][0]
+        if idx < len(tabla_cc):
+            sel_cc_id = tabla_cc.iloc[idx]["CC Responsable ID"]
+            sel_cc_nombre = tabla_cc.iloc[idx]["CC Responsable"]
+        else:
+            sel_cc_id = tabla_cc.iloc[0]["CC Responsable ID"]
+            sel_cc_nombre = tabla_cc.iloc[0]["CC Responsable"]
+    else:
+        sel_cc_id = tabla_cc.iloc[0]["CC Responsable ID"]
+        sel_cc_nombre = tabla_cc.iloc[0]["CC Responsable"]
+
+    # --- 5. KPIs DE LA UNIDAD SELECCIONADA ---
+    st.markdown("---")
+    st.subheader(f"📊 Detalle de: {sel_cc_nombre}")
+
+    resumen_filtrado_cc = resumen[resumen["CC Responsable ID"] == sel_cc_id]
+
+    if not resumen_filtrado_cc.empty:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("📋 Total Actividades", len(resumen_filtrado_cc))
+        col2.metric("📈 Promedio Ejecución", f"{resumen_filtrado_cc['% Ejecución'].mean()*100:.1f}%")
+        col3.metric("🟢 En Meta", len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_VERDE]))
+        col4.metric("🔴 Crítico", len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_ROJO]))
+
+        st.markdown("#### 📋 Cartera de Actividades")
+        
+        tabla_act = resumen_filtrado_cc[[
+            "Producto ID", "Actividad Operativa", "Unidad de Medida",
+            "F(SE) Acum", "F(RE) Acum", "% Ejecución", "Estado", "Color"
+        ]].copy().sort_values("% Ejecución", ascending=False)
+
+        st.dataframe(
+            tabla_act,
+            column_config={
+                "Actividad Operativa": st.column_config.TextColumn("Actividad", width="large"),
+                "Unidad de Medida": st.column_config.TextColumn("U.M.", width="small"),
+                "F(SE) Acum": st.column_config.NumberColumn("Ejecutado", format="%.0f"),
+                "F(RE) Acum": st.column_config.NumberColumn("Programado", format="%.0f"),
+                "% Ejecución": st.column_config.ProgressColumn(
+                    "Cumplimiento",
+                    format="%.1f %%",
+                    min_value=0,
+                    max_value=100,
+                    width="medium"
+                ),
+                "Estado": st.column_config.TextColumn("Estado", width="small"),
+                "Color": st.column_config.TextColumn("Color", width="small")
+            },
+            use_container_width=True,
+            height=250,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="df_act_cc_mejorado"
+        )
+
+        if "selection" in st.session_state.get("df_act_cc_mejorado", {}) and st.session_state["df_act_cc_mejorado"]["selection"]["rows"]:
+            idx_act = st.session_state["df_act_cc_mejorado"]["selection"]["rows"][0]
+            if idx_act < len(tabla_act):
+                sel_act = tabla_act.iloc[idx_act]["Actividad Operativa"]
+            else:
+                sel_act = tabla_act.iloc[0]["Actividad Operativa"]
+        else:
+            sel_act = tabla_act.iloc[0]["Actividad Operativa"]
+
+        st.markdown("---")
+        st.markdown(f"### 📅 Evolución Mensual: {sel_act}")
+
+        df_act_sel = df[df["Actividad Operativa"] == sel_act]
+        info_act = resumen_filtrado_cc[resumen_filtrado_cc["Actividad Operativa"] == sel_act].iloc[0]
+
+        color_act = info_act["Color"]
+
+        mes_labels = month_names[1:len(fse_cols)+1]
+        valores_se = [df_act_sel[c].sum() for c in fse_cols]
+        valores_re = [df_act_sel[c].sum() for c in fre_cols]
+
+        fig_mensual = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_mensual.add_trace(
+            go.Bar(
+                x=mes_labels,
+                y=valores_se,
+                name="Ejecutado Real F(SE)",
+                marker_color=color_act
+            ),
+            secondary_y=False
+        )
+        fig_mensual.add_trace(
+            go.Scatter(
+                x=mes_labels,
+                y=valores_re,
+                name="Programado POI F(RE)",
+                mode="lines+markers",
+                line=dict(color="#dc3545", width=3)
+            ),
+            secondary_y=False
+        )
+        fig_mensual.update_layout(
+            hovermode="x unified",
+            height=280,
+            margin=dict(l=20, r=20, t=20, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_mensual, use_container_width=True)
+
+        pct_act = info_act["% Ejecución"]
+        if pct_act < 0.85:
+            st.error(f"🚨 **Alerta de Subejecución ({pct_act*100:.1f}%):** Esta actividad se encuentra por debajo de la meta.")
+        elif pct_act > 1.00:
+            st.warning(f"⚠️ **Sobreejecución ({pct_act*100:.1f}%):** La ejecución supera lo planificado.")
+        else:
+            st.success("🟢 **Meta Alcanzada:** La actividad mantiene un ritmo de ejecución óptimo.")
+
+        if st.button("🏠 Volver al ranking de unidades"):
+            st.session_state["df_cc_mejorado"] = {"selection": {"rows": []}}
+            st.rerun()
+
+    else:
+        st.info("No se encontraron actividades para esta unidad orgánica.")
+
+# ============================================================================
 # FUNCIONES DE UTILIDAD
 # ============================================================================
 
@@ -341,10 +800,25 @@ def get_resumen_cc_responsable(df):
     return resumen
 
 def formatear_estado_con_color(row):
-    """Formatea el estado con un círculo de color HTML."""
+    """Formatea el estado con un emoji de color (versión unificada)."""
     color = row["Color"]
     estado = row["Estado"]
-    return f'<span style="color:{color};font-size:16px;">●</span> {estado}'
+    
+    emoji_map = {
+        COLOR_VERDE: "🟢",
+        COLOR_AMARILLO: "🟡", 
+        COLOR_ROJO: "🔴",
+        COLOR_MORADO: "🟣",
+        COLOR_GRIS: "⚫"
+    }
+    
+    emoji = emoji_map.get(color, "⚫")
+    
+    # Extraer solo la parte descriptiva del estado
+    partes = estado.split(" - ")
+    estado_limpio = partes[-1] if len(partes) > 1 else estado
+    
+    return f"{emoji} {estado_limpio}"
 
 # ============================================================================
 # FUNCIÓN PRINCIPAL
@@ -504,7 +978,7 @@ def ejecutar_dashboard_poi():
         
         # Gráficos
         if not resumen_gerencial.empty:
-            col1, col2 = st.columns(2)
+            col1, col2 = st.columns([1, 2.5])  # La izquierda ocupa 1 parte, la derecha 2.5 partes
             
             with col1:
                 cant_verde = len(resumen_gerencial[resumen_gerencial["Color"] == COLOR_VERDE])
@@ -565,10 +1039,10 @@ def ejecutar_dashboard_poi():
                         orientation="h",
                         marker_color=bar_color,
                         text=[f"{x:.1f}%" for x in df_graf["% Ejecución"]],
-                        textposition="auto"
+                        textposition="outside"
                     )
                 ])
-                fig_dinamico.update_layout(title=titulo_graf, xaxis_title="%", margin=dict(l=150, r=20, t=40, b=20), height=300)
+                fig_dinamico.update_layout(title=titulo_graf, xaxis_title="%", margin=dict(l=150, r=50, t=40, b=50), height=380)
                 st.plotly_chart(fig_dinamico, use_container_width=True)
         
         # Tabla interactiva
@@ -692,133 +1166,9 @@ def ejecutar_dashboard_poi():
             else:
                 st.success("🟢 **Consistencia Correcta:** Los avances físicos se encuentran alineados con los rangos de tolerancia institucionales.")
   
-    
-    # ========================================================================
-    # TAB 2: CC RESPONSABLE
-    # ========================================================================
     with tab2:
-        st.subheader("🏆 Ranking de Gestión por Unidad Orgánica")
-        st.markdown("💡 *Haga clic en **cualquier Unidad Orgánica** para auditar sus metas físicas asignadas.*")
-        
-        if resumen_cc.empty:
-            st.warning("⚠️ No hay datos disponibles para Unidad Orgánica en este período.")
-        else:
-            tabla_cc_master = resumen_cc[[
-                "CC Responsable ID", "CC Responsable",
-                "F(SE) Acum", "F(RE) Acum", "% Ejecución", "Estado", "Color"
-            ]].copy().sort_values("% Ejecución", ascending=False)
-            
-            tabla_cc_formateada = tabla_cc_master.copy()
-            tabla_cc_formateada["F(SE) Acum"] = tabla_cc_formateada["F(SE) Acum"].apply(lambda x: f"{x:,.0f}")
-            tabla_cc_formateada["F(RE) Acum"] = tabla_cc_formateada["F(RE) Acum"].apply(lambda x: f"{x:,.0f}")
-            tabla_cc_formateada["% Ejecución"] = tabla_cc_formateada["% Ejecución"].apply(lambda x: f"{x*100:.1f}%")
-            tabla_cc_formateada["Estado"] = tabla_cc_formateada.apply(formatear_estado_con_color, axis=1)
-            
-            if "Color" in tabla_cc_formateada.columns:
-                tabla_cc_formateada = tabla_cc_formateada.drop(columns=["Color"])
-            
-            selecciona_cc = st.dataframe(
-                tabla_cc_formateada,
-                use_container_width=True,
-                height=230,
-                on_select="rerun",
-                selection_mode="single-row",
-                key="df_cc_master",
-                column_config={
-                    "Estado": st.column_config.TextColumn("Estado", help="Estado del semáforo", width="medium")
-                }
-            )
-            
-            if selecciona_cc and "selection" in selecciona_cc and selecciona_cc["selection"]["rows"]:
-                idx_cc = selecciona_cc["selection"]["rows"][0]
-                if idx_cc < len(tabla_cc_master):
-                    sel_cc_id = tabla_cc_master.iloc[idx_cc]["CC Responsable ID"]
-                    sel_cc_nombre = tabla_cc_master.iloc[idx_cc]["CC Responsable"]
-                else:
-                    sel_cc_id = tabla_cc_master.iloc[0]["CC Responsable ID"]
-                    sel_cc_nombre = tabla_cc_master.iloc[0]["CC Responsable"]
-            else:
-                sel_cc_id = tabla_cc_master.iloc[0]["CC Responsable ID"]
-                sel_cc_nombre = tabla_cc_master.iloc[0]["CC Responsable"]
-            
-            st.markdown("---")
-            st.subheader(f"🎯 Cartera de Actividades: {sel_cc_nombre}")
-            
-            resumen_filtrado_cc = resumen[resumen["CC Responsable ID"] == sel_cc_id]
-            
-            if resumen_filtrado_cc.empty:
-                st.info("No se encontraron actividades operativas para esta unidad orgánica.")
-            else:
-                columnas_act = [c for c in ["Producto ID", "Actividad Operativa", "Unidad de Medida", "F(SE) Acum", "F(RE) Acum", "% Ejecución", "Estado", "Color"] if c in resumen_filtrado_cc.columns]
-                tabla_act_cc = resumen_filtrado_cc[columnas_act].copy().sort_values("% Ejecución")
-                
-                tabla_act_cc_formateada = tabla_act_cc.copy()
-                tabla_act_cc_formateada["F(SE) Acum"] = tabla_act_cc_formateada["F(SE) Acum"].apply(lambda x: f"{x:,.0f}")
-                tabla_act_cc_formateada["F(RE) Acum"] = tabla_act_cc_formateada["F(RE) Acum"].apply(lambda x: f"{x:,.0f}")
-                tabla_act_cc_formateada["% Ejecución"] = tabla_act_cc_formateada["% Ejecución"].apply(lambda x: f"{x*100:.1f}%")
-                tabla_act_cc_formateada["Estado"] = tabla_act_cc_formateada.apply(formatear_estado_con_color, axis=1)
-                
-                if "Color" in tabla_act_cc_formateada.columns:
-                    tabla_act_cc_formateada = tabla_act_cc_formateada.drop(columns=["Color"])
-                
-                selecciona_act_cc = st.dataframe(
-                    tabla_act_cc_formateada,
-                    use_container_width=True,
-                    height=200,
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    key="df_act_cc",
-                    column_config={
-                        "Estado": st.column_config.TextColumn("Estado", help="Estado del semáforo", width="medium")
-                    }
-                )
-                
-                if selecciona_act_cc and "selection" in selecciona_act_cc and selecciona_act_cc["selection"]["rows"]:
-                    idx_act = selecciona_act_cc["selection"]["rows"][0]
-                    if idx_act < len(tabla_act_cc):
-                        sel_act_cc = tabla_act_cc.iloc[idx_act]["Actividad Operativa"]
-                    else:
-                        sel_act_cc = tabla_act_cc.iloc[0]["Actividad Operativa"]
-                else:
-                    sel_act_cc = tabla_act_cc.iloc[0]["Actividad Operativa"]
-                
-                st.markdown("---")
-                st.markdown(f"### 📅 Comportamiento Mensual Automatizado")
-                st.markdown(f"**Actividad Auditada:** {sel_act_cc}")
-                
-                df_act_cc_sel = df[df["Actividad Operativa"] == sel_act_cc]
-                info_act_cc = resumen_filtrado_cc[resumen_filtrado_cc["Actividad Operativa"] == sel_act_cc].iloc[0]
-                
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Unidad de Medida", info_act_cc["Unidad de Medida"])
-                c2.metric("Prog. Oficina F(RE)", f"{info_act_cc['F(RE) Acum']:,.0f}")
-                c3.metric("Ejec. Oficina F(SE)", f"{info_act_cc['F(SE) Acum']:,.0f}")
-                c4.metric("Nivel de Cumplimiento", f"{info_act_cc['% Ejecución']*100:.1f}%")
-                
-                mes_labels = month_names[1:len(fse_cols)+1]
-                valores_se_cc = [df_act_cc_sel[c].sum() for c in fse_cols]
-                valores_re_cc = [df_act_cc_sel[c].sum() for c in fre_cols]
-                
-                fig_mensual_cc = make_subplots(specs=[[{"secondary_y": True}]])
-                fig_mensual_cc.add_trace(go.Bar(x=mes_labels, y=valores_se_cc, name="Ejecutado Oficina F(SE)", marker_color="#007bff"), secondary_y=False)
-                fig_mensual_cc.add_trace(go.Scatter(x=mes_labels, y=valores_re_cc, name="Programado POI F(RE)", mode="lines+markers", line=dict(color="#dc3545", width=3)), secondary_y=False)
-                
-                fig_mensual_cc.update_layout(
-                    hovermode="x unified",
-                    height=280,
-                    margin=dict(l=20, r=20, t=20, b=20),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                )
-                st.plotly_chart(fig_mensual_cc, use_container_width=True)
-                
-                pct_act_cc = info_act_cc['% Ejecución']
-                if pct_act_cc < 0.85:
-                    st.error(f"🚨 **Alerta de Subejecución ({pct_act_cc*100:.1f}%):** Esta jefatura se encuentra rezagada en la ejecución física.")
-                elif pct_act_cc > 1.00:
-                    st.warning(f"⚠️ **Alerta de Sobreejecución ({pct_act_cc*100:.1f}%):** Los registros superan la meta planificada.")
-                else:
-                    st.success("🟢 **Metas Alcanzadas:** El Centro de Costo mantiene un ritmo de ejecución óptimo.")
-
+        tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month, month_names, fecha_archivo, year)
+  
 # ============================================================================
 # PUNTO DE ENTRADA
 # ============================================================================
