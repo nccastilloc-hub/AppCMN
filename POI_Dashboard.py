@@ -314,12 +314,13 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
 
 def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month, month_names, fecha_archivo, year):
     """
-    Tab 2: Ranking y detalle por Unidad Orgánica (Versión Mejorada).
+    Tab 2: Ranking y detalle por Unidad Orgánica.
+    El filtro de semáforo se aplica a nivel de ACTIVIDAD.
     """
     st.subheader("🏆 Ranking de Gestión por Unidad Orgánica")
     st.markdown("💡 *Haga clic en cualquier Unidad Orgánica para auditar sus metas físicas asignadas.*")
 
-    # --- 1. FILTRO DE SEMÁFORO ---
+    # --- 1. FILTRO DE SEMÁFORO (A NIVEL ACTIVIDAD) ---
     opciones_semaforo = ["Todos", "🟢 En Meta", "🟡 En Riesgo", "🔴 Crítico", "🟣 Exceso", "⚫ Sin dato"]
     filtro_seleccionado = st.multiselect(
         "Filtrar por estado del semáforo",
@@ -328,7 +329,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         key="filtro_tab2"
     )
 
-    # Aplicar filtro
+    # Aplicar filtro a nivel actividad
     if "Todos" not in filtro_seleccionado and filtro_seleccionado:
         color_map = {
             "🟢 En Meta": COLOR_VERDE,
@@ -338,12 +339,19 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
             "⚫ Sin dato": COLOR_GRIS
         }
         colores_seleccionados = [color_map[opt] for opt in filtro_seleccionado if opt in color_map]
-        resumen_cc_filtrado = resumen_cc[resumen_cc["Color"].isin(colores_seleccionados)]
+        resumen_filtrado = resumen[resumen["Color"].isin(colores_seleccionados)].copy()
     else:
-        resumen_cc_filtrado = resumen_cc
+        resumen_filtrado = resumen.copy()
+
+    if resumen_filtrado.empty:
+        st.warning("⚠️ No hay actividades que coincidan con el filtro seleccionado.")
+        return
+
+    # Recalcular resumen por CC con las actividades filtradas
+    resumen_cc_filtrado = get_resumen_cc_responsable(resumen_filtrado)
 
     if resumen_cc_filtrado.empty:
-        st.warning("⚠️ No hay unidades orgánicas que coincidan con el filtro seleccionado.")
+        st.warning("⚠️ No hay unidades orgánicas con actividades del filtro seleccionado.")
         return
 
     # --- 2. GRÁFICO DE BARRAS HORIZONTAL (Ranking) ---
@@ -362,7 +370,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         )
     ])
     fig_cc.update_layout(
-        title="% Ejecución por Unidad Orgánica",
+        title="% Ejecución Promedio por Unidad Orgánica",
         xaxis_title="%",
         xaxis=dict(range=[0, max(df_cc_graf["% Ejecución"] * 100) * 1.15]),
         margin=dict(l=250, r=50, t=40, b=20),
@@ -370,7 +378,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
     )
     st.plotly_chart(fig_cc, use_container_width=True)
 
-    # --- 3. TABLA DE UNIDADES ORGÁNICAS (Seleccionable) ---
+    # --- 3. TABLA DE UNIDADES ORGÁNICAS ---
     st.markdown("---")
     st.subheader("📋 Lista de Unidades Orgánicas")
 
@@ -383,10 +391,17 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
     tabla_cc_formateada["F(SE) Acum"] = tabla_cc_formateada["F(SE) Acum"].apply(lambda x: f"{x:,.0f}")
     tabla_cc_formateada["F(RE) Acum"] = tabla_cc_formateada["F(RE) Acum"].apply(lambda x: f"{x:,.0f}")
     tabla_cc_formateada["% Ejecución"] = tabla_cc_formateada["% Ejecución"].apply(lambda x: f"{x*100:.1f}%")
-    tabla_cc_formateada["Estado"] = tabla_cc_formateada.apply(formatear_estado_con_color, axis=1)
+    tabla_cc_formateada["Estado"] = tabla_cc_formateada.apply(formatear_estado, axis=1)
 
     if "Color" in tabla_cc_formateada.columns:
         tabla_cc_formateada = tabla_cc_formateada.drop(columns=["Color"])
+
+        # --- GESTIONAR RESET DE SELECCIÓN ---
+    if st.session_state.get("reset_seleccion", False):
+        # Limpiar el estado del dataframe
+        if "df_cc_mejorado" in st.session_state:
+            del st.session_state["df_cc_mejorado"]
+        st.session_state["reset_seleccion"] = False
 
     seleccion_cc = st.dataframe(
         tabla_cc_formateada,
@@ -417,9 +432,11 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
     st.markdown("---")
     st.subheader(f"📊 Detalle de: {sel_cc_nombre}")
 
-    resumen_filtrado_cc = resumen[resumen["CC Responsable ID"] == sel_cc_id]
+    resumen_filtrado_cc = resumen_filtrado[resumen_filtrado["CC Responsable ID"] == sel_cc_id]
 
-    if not resumen_filtrado_cc.empty:
+    if resumen_filtrado_cc.empty:
+        st.info("No se encontraron actividades con el estado seleccionado en esta unidad orgánica.")
+    else:
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("📋 Total Actividades", len(resumen_filtrado_cc))
         col2.metric("📈 Promedio Ejecución", f"{resumen_filtrado_cc['% Ejecución'].mean()*100:.1f}%")
@@ -427,11 +444,14 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         col4.metric("🔴 Crítico", len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_ROJO]))
 
         st.markdown("#### 📋 Cartera de Actividades")
-        
+
         tabla_act = resumen_filtrado_cc[[
             "Producto ID", "Actividad Operativa", "Unidad de Medida",
             "F(SE) Acum", "F(RE) Acum", "% Ejecución", "Estado", "Color"
         ]].copy().sort_values("% Ejecución", ascending=False)
+
+        tabla_act["Estado"] = tabla_act.apply(formatear_estado, axis=1)
+        tabla_act = tabla_act.drop(columns=["Color"])
 
         st.dataframe(
             tabla_act,
@@ -447,8 +467,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
                     max_value=100,
                     width="medium"
                 ),
-                "Estado": st.column_config.TextColumn("Estado", width="small"),
-                "Color": st.column_config.TextColumn("Color", width="small")
+                "Estado": st.column_config.TextColumn("Estado", width="small")
             },
             use_container_width=True,
             height=250,
@@ -514,12 +533,9 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         else:
             st.success("🟢 **Meta Alcanzada:** La actividad mantiene un ritmo de ejecución óptimo.")
 
-        if st.button("🏠 Volver al ranking de unidades"):
-            st.session_state["df_cc_mejorado"] = {"selection": {"rows": []}}
+        if st.button("🔙 Limpiar selección"):
+            st.session_state["reset_seleccion"] = True
             st.rerun()
-
-    else:
-        st.info("No se encontraron actividades para esta unidad orgánica.")
 
 # ============================================================================
 # FUNCIONES DE UTILIDAD
@@ -915,7 +931,25 @@ def ejecutar_dashboard_poi():
         st.metric("🟣 Exceso", act_morado)  # ¡MORADO!
     with col6:
         st.metric("⚫ Sin dato", act_gris)
-    
+        
+        # --- LEYENDA DEL SEMÁFORO (Directiva CEPLAN) ---
+    st.markdown("---")
+    st.caption("📘 **Criterios de semaforización (Directiva CEPLAN):**")
+    st.caption("🟢 **En Meta:** 95% - 100%  |  🟡 **En Riesgo:** 75% - 95%  |  🔴 **Crítico:** < 75%  |  🟣 **Exceso:** > 100%  |  ⚫ **Sin dato:** 0%")
+
+    with st.expander("📖 Ver detalle completo de la Directiva CEPLAN"):
+        st.markdown("""
+        **Criterios de semaforización para el seguimiento de metas físicas:**
+        
+        - **🟢 En Meta (Alto):** Actividades que han alcanzado un porcentaje de ejecución entre el 95% y el 100% de lo programado.
+        - **🟡 En Riesgo (Medio):** Actividades con ejecución entre el 75% y el 95%, que requieren monitoreo para evitar caer en zona crítica.
+        - **🔴 Crítico (Bajo):** Actividades con ejecución inferior al 75%, que requieren acciones correctivas inmediatas.
+        - **🟣 Exceso (Sobreejecución):** Actividades que superan el 100% de ejecución, lo que puede indicar sobreesfuerzo o posibles errores de programación.
+        - **⚫ Sin dato:** Actividades sin ejecución registrada o con programación en cero.
+        
+        *Fuente: Directiva CEPLAN para el seguimiento de metas físicas.*
+        """)
+
     # --- PESTAÑAS ---
     tab1, tab2 = st.tabs(["Programa/Categoria Presupuestal", "Unidad Orgánica"])
     
