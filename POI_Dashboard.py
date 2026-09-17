@@ -433,21 +433,40 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
     st.subheader(f"📊 Detalle de: {sel_cc_nombre}")
 
     resumen_filtrado_cc = resumen_filtrado[resumen_filtrado["CC Responsable ID"] == sel_cc_id]
-
+    
     if resumen_filtrado_cc.empty:
         st.info("No se encontraron actividades con el estado seleccionado en esta unidad orgánica.")
     else:
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("📋 Total Actividades", len(resumen_filtrado_cc))
-        col2.metric("📈 Promedio Ejecución", f"{resumen_filtrado_cc['% Ejecución'].mean()*100:.1f}%")
-        col3.metric("🟢 En Meta", len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_VERDE]))
-        col4.metric("🔴 Crítico", len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_ROJO]))
+                # --- KPIs DE LA UNIDAD (6 tarjetas) ---
+        total_unidad = len(resumen_filtrado_cc)
+        verde_unidad = len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_VERDE])
+        amarillo_unidad = len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_AMARILLO])
+        rojo_unidad = len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_ROJO])
+        morado_unidad = len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_MORADO])
+        gris_unidad = len(resumen_filtrado_cc[resumen_filtrado_cc["Color"] == COLOR_GRIS])
+
+        # Promedio ponderado (coherente con el gráfico)
+        if resumen_filtrado_cc["F(RE) Acum"].sum() > 0:
+            promedio_ponderado = (resumen_filtrado_cc["F(SE) Acum"].sum() / resumen_filtrado_cc["F(RE) Acum"].sum()) * 100
+        else:
+            promedio_ponderado = 0
+
+        col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+        col1.metric("📋 Total", total_unidad)
+        col2.metric("📈 Promedio", f"{promedio_ponderado:.1f}%")
+        col3.metric("🟢 En Meta", verde_unidad)
+        col4.metric("🟡 En Riesgo", amarillo_unidad)
+        col5.metric("🔴 Crítico", rojo_unidad)
+        col6.metric("🟣 Exceso", morado_unidad)
+        col7.metric("⚫ Sin dato", gris_unidad)
 
         st.markdown("#### 📋 Cartera de Actividades")
 
         tabla_act = resumen_filtrado_cc[[
             "Producto ID", "Actividad Operativa", "Unidad de Medida",
-            "F(SE) Acum", "F(RE) Acum", "% Ejecución", "Estado", "Color"
+            "F(SE) Acum", "F(RE) Acum", "% Ejecución",
+            "Proyeccion_Dic", "Alerta_Proyeccion",
+            "Estado", "Color"
         ]].copy().sort_values("% Ejecución", ascending=False)
 
         tabla_act["Estado"] = tabla_act.apply(formatear_estado, axis=1)
@@ -455,7 +474,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
 
         st.dataframe(
             tabla_act,
-            column_config={
+                column_config={
                 "Actividad Operativa": st.column_config.TextColumn("Actividad", width="large"),
                 "Unidad de Medida": st.column_config.TextColumn("U.M.", width="small"),
                 "F(SE) Acum": st.column_config.NumberColumn("Ejecutado", format="%.0f"),
@@ -467,6 +486,8 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
                     max_value=100,
                     width="medium"
                 ),
+                "Proyeccion_Dic": st.column_config.NumberColumn("Proy. Dic", format="%.0f"),
+                "Alerta_Proyeccion": st.column_config.TextColumn("Alerta", width="small"),
                 "Estado": st.column_config.TextColumn("Estado", width="small")
             },
             use_container_width=True,
@@ -475,6 +496,8 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
             selection_mode="single-row",
             key="df_act_cc_mejorado"
         )
+
+        st.caption("📌 *Proyección calculada con promedio móvil de los últimos 3 meses. Puede ser imprecisa en actividades esporádicas (no regulares).*")
 
         if "selection" in st.session_state.get("df_act_cc_mejorado", {}) and st.session_state["df_act_cc_mejorado"]["selection"]["rows"]:
             idx_act = st.session_state["df_act_cc_mejorado"]["selection"]["rows"][0]
@@ -680,6 +703,34 @@ def load_data(excel_path):
         df["F(SE) Acum"] / last_month * 12,
         0
     )
+
+        # --- PROYECCIÓN A DICIEMBRE (PROMEDIO MÓVIL ÚLTIMOS 3 MESES) ---
+    if len(fse_cols) >= 3:
+        ult_3_meses = fse_cols[-3:]
+        df["Prom_Ult_3M"] = df[ult_3_meses].sum(axis=1) / 3
+    elif len(fse_cols) > 0:
+        df["Prom_Ult_3M"] = df[fse_cols].sum(axis=1) / len(fse_cols)
+    else:
+        df["Prom_Ult_3M"] = 0
+
+    df["Proyeccion_Dic"] = df["Prom_Ult_3M"] * 12
+
+    df["Proyeccion_vs_Meta"] = np.where(
+        df["F(RE) Acum"] > 0,
+        (df["Proyeccion_Dic"] / df["F(RE) Acum"]) * 100,
+        0
+    )
+
+    df["Alerta_Proyeccion"] = np.where(
+        df["Proyeccion_vs_Meta"] < 85,
+        "⚠️ Revisar meta",
+        np.where(
+            df["Proyeccion_vs_Meta"] > 115,
+            "🟣 Sobreejecución",
+            "🟢 OK"
+        )
+    )
+
     
     # Semáforo
     def semaforo(row):
@@ -742,9 +793,11 @@ def get_resumen(df):
         "F(RE) Acum": "sum",
         "% Ejecución": "mean",
         "Estimación Dic": "sum",
+        "Proyeccion_Dic": "sum",       # <-- ¿Está esta línea?
+        "Prom_Ult_3M": "sum",          # <-- ¿Y esta?
         "CV": "mean",
         "Tendencia": "mean"
-    }
+        }
     
     resumen = df.groupby(group_cols, as_index=False).agg(agg_dict)
     
@@ -770,7 +823,18 @@ def get_resumen(df):
             return "MORADO - EXCESO", COLOR_MORADO
     
     resumen[["Estado", "Color"]] = resumen.apply(semaforo_agg, axis=1, result_type="expand")
-    
+
+    resumen["Proyeccion_vs_Meta"] = np.where(
+        resumen["F(RE) Acum"] > 0,
+        (resumen["Proyeccion_Dic"] / resumen["F(RE) Acum"]) * 100,
+        0
+    )
+
+    resumen["Alerta_Proyeccion"] = np.where(
+        resumen["Proyeccion_vs_Meta"] < 85,
+        "⚠️ Revisar meta",
+        np.where(resumen["Proyeccion_vs_Meta"] > 115, "🟣 Sobreejecución", "🟢 OK")
+    )
     return resumen
 
 def get_resumen_cc_responsable(df):
@@ -784,6 +848,8 @@ def get_resumen_cc_responsable(df):
     agg_dict = {
         "F(SE) Acum": "sum",
         "F(RE) Acum": "sum",
+        "Proyeccion_Dic": "sum",
+        "Prom_Ult_3M": "sum",
         "CV": "mean",
         "Tendencia": "mean"
     }
@@ -812,6 +878,17 @@ def get_resumen_cc_responsable(df):
             return "MORADO - EXCESO", COLOR_MORADO
     
     resumen[["Estado", "Color"]] = resumen.apply(semaforo_cc, axis=1, result_type="expand")
+
+    resumen["Proyeccion_vs_Meta"] = np.where(
+        resumen["F(RE) Acum"] > 0,
+        (resumen["Proyeccion_Dic"] / resumen["F(RE) Acum"]) * 100,
+        0
+    )
+    resumen["Alerta_Proyeccion"] = np.where(
+        resumen["Proyeccion_vs_Meta"] < 85,
+        "⚠️ Revisar meta",
+        np.where(resumen["Proyeccion_vs_Meta"] > 115, "🟣 Sobreejecución", "🟢 OK")
+    )
     
     return resumen
 
@@ -1139,12 +1216,20 @@ def ejecutar_dashboard_poi():
             info_act = resumen_gerencial[resumen_gerencial["Actividad Operativa"] == sel_actividad].iloc[0]
 
             # Métricas
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("Unidad de Medida", info_act["Unidad de Medida"])
             c2.metric("Programado Acum. F(RE)", f"{info_act['F(RE) Acum']:,.0f}")
             c3.metric("Ejecutado Acum. F(SE)", f"{info_act['F(SE) Acum']:,.0f}")
             c4.metric("Cumplimiento Real", f"{info_act['% Ejecución']*100:.1f}%")
 
+            c5, c6 = st.columns(2)    
+            proy = info_act.get("Proyeccion_Dic", 0)
+            alerta = info_act.get("Alerta_Proyeccion", "🟢 OK")
+            c5.metric("📈 Proyección Dic", f"{proy:,.0f}")
+            c6.metric("⚠️ Alerta", alerta)
+            
+            st.caption("📌 *Proyección calculada con **promedio móvil de los últimos 3 meses**. Puede ser imprecisa en actividades esporádicas (no regulares). Se ajustará cuando lleguen los datos oficiales.*")
+            
             # Preparar datos del gráfico
             mes_labels = month_names[1:len(fse_cols)+1]
             valores_se = [df_actividad_seleccionada[c].sum() for c in fse_cols]
