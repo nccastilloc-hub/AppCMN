@@ -1010,9 +1010,18 @@ def ejecutar_dashboard_poi():
         st.metric("⚫ Sin dato", act_gris)
         
         # --- LEYENDA DEL SEMÁFORO (Directiva CEPLAN) ---
-    st.markdown("---")
-    st.caption("📘 **Criterios de semaforización (Directiva CEPLAN):**")
-    st.caption("🟢 **En Meta:** 95% - 100%  |  🟡 **En Riesgo:** 75% - 95%  |  🔴 **Crítico:** < 75%  |  🟣 **Exceso:** > 100%  |  ⚫ **Sin dato:** 0%")
+        st.markdown("##### 📘 **Criterios de semaforización (Directiva CEPLAN):**")
+    st.markdown(
+        "<div style='background-color:#1e1e1e; padding:10px; border-radius:8px; "
+        "border-left:4px solid #17a2b8; font-size:15px; color:#e0e0e0;'>"
+        "🟢 <b>En Meta:</b> 95% - 100%  |  "
+        "🟡 <b>En Riesgo:</b> 75% - 95%  |  "
+        "🔴 <b>Crítico:</b> &lt; 75%  |  "
+        "🟣 <b>Exceso:</b> &gt; 100%  |  "
+        "⚫ <b>Sin dato:</b> 0%"
+        "</div>",
+        unsafe_allow_html=True
+    )
 
     with st.expander("📖 Ver detalle completo de la Directiva CEPLAN"):
         st.markdown("""
@@ -1248,28 +1257,55 @@ def ejecutar_dashboard_poi():
 
             # Crear gráfico con color dinámico
             fig_mensual = make_subplots(specs=[[{"secondary_y": True}]])
+
+            # Calcular porcentaje de ejecución mensual (SE / RE)
+            pct_mensual = []
+            for i, (se, re) in enumerate(zip(valores_se, valores_re)):
+                if re > 0:
+                    pct_mensual.append((se / re) * 100)
+                else:
+                    pct_mensual.append(0)
+
+            hover_text = []
+            for i, mes in enumerate(mes_labels):
+                hover_text.append(
+                    f"<b>{mes}</b><br>"
+                    f"Ejecutado: {valores_se[i]:,.0f}<br>"
+                    f"Programado: {valores_re[i]:,.0f}<br>"
+                    f"<b>% Ejecución: {pct_mensual[i]:.1f}%</b>"
+                )
+
             fig_mensual.add_trace(
                 go.Bar(
                     x=mes_labels,
                     y=valores_se,
                     name="Ejecutado Real F(SE)",
-                    marker_color=bar_color_evolucion
+                    marker_color=bar_color_evolucion,
+                    customdata=np.array([valores_re, pct_mensual]).T,
+                    hovertemplate=(
+                        "<b>Ejecutado:</b> %{y:,.0f}<br>"
+                        "<b>Programado:</b> %{customdata[0]:,.0f}<br>"
+                        "<b>% Ejecución:</b> %{customdata[1]:.1f}%"
+                        "<extra></extra>"  # <-- Esto elimina el nombre de la traza
+                    )
                 ),
                 secondary_y=False
             )
+            
             fig_mensual.add_trace(
                 go.Scatter(
                     x=mes_labels,
                     y=valores_re,
                     name="Programado POI F(RE)",
                     mode="lines+markers",
-                    line=dict(color="#dc3545", width=3)
+                    line=dict(color="#dc3545", width=3),
+                    hoverinfo="skip"  # <-- Desactiva el hover de esta traza
                 ),
                 secondary_y=False
             )
 
             fig_mensual.update_layout(
-                hovermode="x unified",
+                hovermode="closest",
                 height=280,
                 margin=dict(l=20, r=20, t=20, b=20),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
