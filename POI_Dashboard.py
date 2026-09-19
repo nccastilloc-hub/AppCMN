@@ -1,5 +1,10 @@
 """
-Dashboard de Seguimiento de Metas Físicas POI - Versión Streamlit
+Dashboard de Seguimiento de Metas Físicas POI del año fiscal - Versión Streamlit
+Elaborado por: Unidad Funcional de Planeamiento - Oficina Ejecutiva de Planeamiento Estratégico (OEPE)
+Asistente de Desarrollo: Gemini IA/DeepSeek
+Fecha de elaboración: 2026-05-31
+Fecha de actualización: 2026-09-19
+Objetivo: Proporcionar un tablero de control interactivo para la gestión de metas físicas del POI, permitiendo a los usuarios auditar y analizar el desempeño de las actividades operativas en tiempo real.
 ==================================================================
 Módulo Streamlit para integración en el menú principal de Gestión IPRESS.
 """
@@ -10,6 +15,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
+from openpyxl import load_workbook
 import os
 import glob
 import re
@@ -17,6 +23,31 @@ import re
 # ============================================================================
 # CONFIGURACIÓN Y CONSTANTES
 # ============================================================================
+
+# ==============================================================================
+# 2. FUNCIÓN PARA LEER LA FECHA INTERNA DEL EXCEL
+# ==============================================================================
+
+def extraer_fecha_corte(ruta_archivo: str) -> str:
+    try:
+        wb = load_workbook(ruta_archivo, read_only=True)
+        if wb.properties and wb.properties.modified:
+            # Restar 5 horas directamente (UTC a UTC-5 Perú)
+            from datetime import timedelta
+            fecha_local = wb.properties.modified - timedelta(hours=5)
+            return fecha_local.strftime("%d/%m/%Y a las %H:%M hrs")
+    except Exception:
+        pass
+
+    if os.path.exists(ruta_archivo):
+        timestamp = os.path.getmtime(ruta_archivo)
+        return datetime.fromtimestamp(timestamp).strftime("%d/%m/%Y a las %H:%M hrs")
+
+    return "No determinada"
+
+# Obtener la fecha del archivo de trabajo
+archivo_datos = "Seguimiento metas fisicas POI.xlsx"  # <-- Cambia por el nombre de tu archivo Excel
+fecha_actualizacion = extraer_fecha_corte(archivo_datos)
 
 # Colores de semáforo institucional
 COLOR_MORADO = "#6f42c1"
@@ -1027,12 +1058,35 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
 
 def ejecutar_dashboard_poi():
     """Punto de entrada de la aplicación Streamlit."""
+    # --- CABECERA INSTITUCIONAL MINSA - INMP ---
+    archivo_datos = "Seguimiento metas fisicas POI.xlsx"
+    fecha_actualizacion = extraer_fecha_corte(archivo_datos)
+    
+    col_minsa, col_titulo, col_inmp = st.columns([2.2, 5, 1.5], vertical_alignment="center")
+
+    with col_minsa:
+        if os.path.exists("MINSA logo1.png"):
+            st.image("MINSA logo1.png", use_container_width=True)
+
+    with col_titulo:
+        st.markdown("<h2 style='text-align: center; margin-bottom: 0;'>Instituto Nacional Materno Perinatal</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #555; margin-top: 2px; margin-bottom: 4px; font-weight: 500;'>Oficina Ejecutiva de Planeamiento Estratégico</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='text-align: center; font-size: 0.85rem; color: #777;'>📅 Última actualización: <b>{fecha_actualizacion}</b></p>", unsafe_allow_html=True)
+
+    with col_inmp:
+        if os.path.exists("logo-inmp.png"):
+            st.image("logo-inmp.png", width=120)
+
+    st.divider()
+
+    # --- Continúa la carga del archivo y el resto del dashboard ---
+
     archivo_encontrado = encontrar_archivo_ceplan()
     
     if archivo_encontrado:
         EXCEL_PATH = archivo_encontrado
         st.sidebar.success(f"✅ Archivo: {os.path.basename(EXCEL_PATH)}")
-        st.sidebar.caption(f"📁 Última modificación: {datetime.fromtimestamp(os.path.getmtime(EXCEL_PATH)).strftime('%d/%m/%Y %H:%M')}")
+        st.sidebar.caption(f"📅 **Corte de datos:** {fecha_actualizacion}")
     else:
         st.error("❌ No se encontró ningún archivo de CEPLAN")
         st.info("📥 Coloca un archivo descargado de CEPLAN en la raíz o en la carpeta **POI/**")

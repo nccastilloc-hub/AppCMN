@@ -6,13 +6,11 @@ import CMN_EG as cmn
 import POI_Dashboard as poi
 
 def mostrar_menu():
-    # --- CONFIGURACIÓN ESTÉTICA ---
-    st.set_page_config(page_title="Sistema de Gestión IPRESS", layout="wide")
     
     # --- MENÚ LATERAL (Identidad y Navegación) ---
     with st.sidebar:
         st.title("🏛️ Gestión IPRESS")
-        # st.image("logo-calado.png", width=200)  # Descomenta cuando tengas el logo
+        st.image("INMP logobicentenario.png", width=200)  # Descomenta cuando tengas el logo
         st.markdown("---")
         
         opcion = st.radio(
