@@ -574,7 +574,18 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
         ejec_actual = info_act['F(SE) Acum']
         prog_acumulado = info_act['F(RE) Acum']
         proyeccion_cierre = ejec_actual + (ritmo_mensual * n_restantes)
-        pct_proy = (proyeccion_cierre / prog_acumulado * 100) if prog_acumulado > 0 else 0
+
+        # -------------------------------------------------------------
+        # AQUÍ SE INSERTA: Meta Total Anual Programada (Ene - Dic)
+        # -------------------------------------------------------------
+        todas_fre_cols = [c for c in df.columns if "F(RE)" in c and any(str(i).zfill(2) in c for i in range(1, 13))]
+        meta_anual_programada = df_act_sel[todas_fre_cols].sum(axis=1).values[0] if todas_fre_cols else prog_acumulado
+        
+        # Cumplimiento proyectado respecto a la meta total del año
+        pct_proy = (proyeccion_cierre / meta_anual_programada * 100) if meta_anual_programada > 0 else 0
+
+        # -------------------------------------------------------------
+        # pct_proy = (proyeccion_cierre / prog_acumulado * 100) if prog_acumulado > 0 else 0
 
         # Tarjetas Sombreadas en CSS
         st.markdown("""
@@ -600,9 +611,9 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
         m3.metric(f"Ejecutado (Ene-{month_names[last_month]})", f"{ejec_actual:,.0f}")
         m4.metric("Cumplimiento Actual", f"{info_act['% Ejecución']*100:.1f}%")
 
-        # Fila 2: Cajas Sombreadas de Proyección Fin de Año
-        c_proy1, c_proy2, c_proy3 = st.columns(3)
-        
+        # Fila 2: Cajas Sombreadas de Proyección Fin de Año (4 columnas para trazabilidad total)
+        c_proy1, c_proy2, c_proy3, c_proy4 = st.columns(4)
+
         with c_proy1:
             st.markdown(f"""
             <div class="kpi-card" style="border-left: 5px solid #17a2b8;">
@@ -615,19 +626,28 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
         with c_proy2:
             st.markdown(f"""
             <div class="kpi-card" style="border-left: 5px solid #ffc107;">
-                <div class="kpi-title">Proyección Cierre a Diciembre</div>
+                <div class="kpi-title">Proyección Cierre (Dic)</div>
                 <div class="kpi-value">{proyeccion_cierre:,.0f}</div>
-                <div class="kpi-sub">Acumulado actual + {n_restantes} meses proyectados</div>
+                <div class="kpi-sub">Real Ene-{month_names[last_month]} + {n_restantes} m. proy.</div>
             </div>
             """, unsafe_allow_html=True)
 
         with c_proy3:
+            st.markdown(f"""
+            <div class="kpi-card" style="border-left: 5px solid #6c757d;">
+                <div class="kpi-title">Meta Anual Programada</div>
+                <div class="kpi-value">{meta_anual_programada:,.0f}</div>
+                <div class="kpi-sub">Total POI (Ene - Dic)</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with c_proy4:
             color_meta = "#28a745" if 95 <= pct_proy <= 105 else ("#dc3545" if pct_proy < 75 else "#ffc107")
             st.markdown(f"""
             <div class="kpi-card" style="border-left: 5px solid {color_meta};">
-                <div class="kpi-title">Cumplimiento Estimado Cierre</div>
+                <div class="kpi-title">Cumplimiento al Cierre</div>
                 <div class="kpi-value">{pct_proy:.1f}%</div>
-                <div class="kpi-sub">Proyección vs Meta Acumulada</div>
+                <div class="kpi-sub">Proyección vs Meta Anual</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -928,7 +948,16 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         ejec_actual = info_act['F(SE) Acum']
         prog_acumulado = info_act['F(RE) Acum']
         proyeccion_cierre = ejec_actual + (ritmo_mensual * n_restantes)
-        pct_proy = (proyeccion_cierre / prog_acumulado * 100) if prog_acumulado > 0 else 0
+        # -------------------------------------------------------------
+        # AQUÍ SE INSERTA: Meta Total Anual Programada (Ene - Dic)
+        # -------------------------------------------------------------
+        todas_fre_cols = [c for c in df.columns if "F(RE)" in c and any(str(i).zfill(2) in c for i in range(1, 13))]
+        meta_anual_programada = df_act_sel[todas_fre_cols].sum(axis=1).values[0] if todas_fre_cols else prog_acumulado
+        
+        # Cumplimiento proyectado respecto a la meta total del año
+        pct_proy = (proyeccion_cierre / meta_anual_programada * 100) if meta_anual_programada > 0 else 0
+        # -------------------------------------------------------------
+        #pct_proy = (proyeccion_cierre / prog_acumulado * 100) if prog_acumulado > 0 else 0
 
         # Fila 1: Métricas de Ejecución Actual
         m1, m2, m3, m4 = st.columns(4)
@@ -937,9 +966,9 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         m3.metric(f"Ejecutado (Ene-{month_names[last_month]})", f"{ejec_actual:,.0f}")
         m4.metric("Cumplimiento Actual", f"{info_act['% Ejecución']*100:.1f}%")
 
-        # Fila 2: Cajas Sombreadas de Proyección Fin de Año
-        c_proy1, c_proy2, c_proy3 = st.columns(3)
-        
+        # Fila 2: Cajas Sombreadas de Proyección Fin de Año (4 columnas para trazabilidad total)
+        c_proy1, c_proy2, c_proy3, c_proy4 = st.columns(4)
+
         with c_proy1:
             st.markdown(f"""
             <div class="kpi-card" style="border-left: 5px solid #17a2b8;">
@@ -952,19 +981,28 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         with c_proy2:
             st.markdown(f"""
             <div class="kpi-card" style="border-left: 5px solid #ffc107;">
-                <div class="kpi-title">Proyección Cierre a Diciembre</div>
+                <div class="kpi-title">Proyección Cierre (Dic)</div>
                 <div class="kpi-value">{proyeccion_cierre:,.0f}</div>
-                <div class="kpi-sub">Acumulado actual + {n_restantes} meses proyectados</div>
+                <div class="kpi-sub">Real Ene-{month_names[last_month]} + {n_restantes} m. proy.</div>
             </div>
             """, unsafe_allow_html=True)
 
         with c_proy3:
+            st.markdown(f"""
+            <div class="kpi-card" style="border-left: 5px solid #6c757d;">
+                <div class="kpi-title">Meta Anual Programada</div>
+                <div class="kpi-value">{meta_anual_programada:,.0f}</div>
+                <div class="kpi-sub">Total POI (Ene - Dic)</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with c_proy4:
             color_meta = "#28a745" if 95 <= pct_proy <= 105 else ("#dc3545" if pct_proy < 75 else "#ffc107")
             st.markdown(f"""
             <div class="kpi-card" style="border-left: 5px solid {color_meta};">
-                <div class="kpi-title">Cumplimiento Estimado Cierre</div>
+                <div class="kpi-title">Cumplimiento al Cierre</div>
                 <div class="kpi-value">{pct_proy:.1f}%</div>
-                <div class="kpi-sub">Proyección vs Meta Acumulada</div>
+                <div class="kpi-sub">Proyección vs Meta Anual</div>
             </div>
             """, unsafe_allow_html=True)
 

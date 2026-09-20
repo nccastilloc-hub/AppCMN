@@ -17,7 +17,18 @@ def mostrar_menu():
             "Seleccione el Módulo:",
             ["🏠 Inicio", "📊 Consistencia CMN-CEPLAN", "📈 Seguimiento POI", "📈 Indicadores Hospitalarios"]
         )
-    
+        st.markdown("---")
+        st.markdown(
+        """
+        <div style="font-size: 0.75rem; color: #888; text-align: center; line-height: 1.4;">
+            Diseño y desarrollo de la<br>
+            <b>Unidad Funcional de Planeamiento - OEPE</b><br>
+            <i>con asistencia de IA Generativa</i>
+        </div>
+        """,
+        unsafe_allow_html=True
+        )
+
     # Botón de salir (corregido)
     # En Menuprincipal.py, dentro de la función mostrar_menu()
     if st.sidebar.button("🚪 Salir del Sistema"):
