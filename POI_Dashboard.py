@@ -229,6 +229,24 @@ def load_data(excel_path):
         )
     )
     
+    # =========================================================================
+    # CÁLCULOS OFICIALES Y PROYECCIONES (REAL VS. TRUNCADO CEPLAN)
+    # =========================================================================
+    # 1. Avance Real (sin tope para auditar sobreejecución y distorsiones)
+    df["% Avance_Real"] = np.where(
+        df["F(RE) Acum"] > 0,
+        df["F(SE) Acum"] / df["F(RE) Acum"],
+        0.0
+    )
+    
+    # 2. Pronóstico Lineal Real a Diciembre (meses_totales / meses_transcurridos)
+    factor_anual = 12.0 / last_month if last_month > 0 else 1.0
+    df["% Proy_Real"] = df["% Avance_Real"] * factor_anual
+
+    # 3. Avance Truncado al 100% (Directiva y Reporte Oficial CEPLAN)
+    df["% Avance_CEPLAN"] = np.minimum(1.0, df["% Avance_Real"])
+    df["% Proy_CEPLAN"] = np.minimum(1.0, df["% Proy_Real"])
+
     def semaforo(row):
         pct = row["% Ejecución"]
         if row["F(RE) Acum"] == 0:
@@ -1170,6 +1188,98 @@ def ejecutar_dashboard_poi():
         if st.button("🔄 Recargar", help="Forzar recarga de datos"):
             st.cache_data.clear()
             st.rerun()
+
+    # =========================================================================
+    # PREPARACIÓN DE DATOS MACRO INSTITUCIONALES (205 AO ACTIVAS)
+    # =========================================================================
+    # Filtro estricto de actividades con programación acumulada activa
+    ao_activas = df[(df["Activo AO"] == "SI") & (df["F(RE) Acum"] > 0)].copy()
+    n_activas = len(ao_activas)
+
+    # Conteo de semáforo a agosto (base de 205 AO)
+    n_exceso = (ao_activas["% Avance_Real"] > 1.00).sum()
+    n_meta = ((ao_activas["% Avance_Real"] >= 0.95) & (ao_activas["% Avance_Real"] <= 1.00)).sum()
+    n_riesgo = ((ao_activas["% Avance_Real"] >= 0.75) & (ao_activas["% Avance_Real"] < 0.95)).sum()
+    n_critico = ((ao_activas["% Avance_Real"] > 0.0) & (ao_activas["% Avance_Real"] < 0.75)).sum()
+    n_sin_dato = (ao_activas["% Avance_Real"] == 0.0).sum()
+
+    # =========================================================================
+    # PANEL GERENCIAL - DIRECCIÓN GENERAL
+    # =========================================================================
+    with st.container(border=True):
+        col_tit, col_toggle = st.columns([3.5, 1.5], vertical_alignment="center")
+        
+        with col_tit:
+            st.markdown("### 🏛️ Situación Global y Pronóstico POI")
+        
+        with col_toggle:
+            criterio_ceplan = st.toggle(
+                "🔒 Truncar avances al 100% (Norma CEPLAN)",
+                value=False,
+                help="Activado: Aplica el tope del 100% de la directiva CEPLAN para auditorías. Desactivado: Muestra la sobreejecución y el avance real del gasto operativo."
+            )
+
+        if criterio_ceplan:
+            avance_institucional = ao_activas["% Avance_CEPLAN"].mean() * 100
+            cierre_institucional = ao_activas["% Proy_CEPLAN"].mean() * 100
+            txt_modo = "Cálculo oficial con Avance Truncado al 100% (Metodología aplicativo CEPLAN)"
+        else:
+            avance_institucional = ao_activas["% Avance_Real"].mean() * 100
+            cierre_institucional = ao_activas["% Proy_Real"].mean() * 100
+            txt_modo = "Cálculo con Avance Real Acumulado (Permite auditar sobreejecución y desvíos)"
+
+        st.caption(f"📌 **Metodología activa:** {txt_modo}")
+
+        col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
+        
+        with col_kpi1:
+            st.metric(
+                label=f"📈 Avance Global Ene-{month_names[last_month]}",
+                value=f"{avance_institucional:.1f} %",
+                delta="Consolidado Institucional"
+            )
+        
+        with col_kpi2:
+            delta_val = cierre_institucional - avance_institucional
+            st.metric(
+                label="🎯 Pronóstico Cierre Anual",
+                value=f"{cierre_institucional:.1f} %",
+                delta=f"{delta_val:+.1f}% estimado",
+                delta_color="normal" if cierre_institucional >= 90 else "inverse"
+            )
+            
+        with col_kpi3:
+            st.metric(
+                label="🟣 Actividades en Exceso (> 100%)",
+                value=f"{n_exceso} AO",
+                help="Metas físicas que ya superaron lo programado para el período",
+                delta="Revisión de consistencia",
+                delta_color="inverse"
+            )
+            
+        with col_kpi4:
+            st.metric(
+                label="🚨 Alerta Crítica (< 75%)",
+                value=f"{n_critico + n_sin_dato} AO",
+                delta=f"{n_sin_dato} sin ejecución",
+                delta_color="inverse"
+            )
+
+        # Diagnóstico gerencial automático en una sola línea
+        if cierre_institucional >= 95 and not criterio_ceplan:
+            st.success(
+                f"🟢 **Diagnóstico:** El INMP proyecta una ejecución real anual del **{cierre_institucional:.1f}%**. "
+                f"Existen **{n_exceso} actividades en exceso** que impulsan el promedio y ameritan reprogramación."
+            )
+        elif cierre_institucional >= 85:
+            st.warning(
+                f"🟡 **Diagnóstico:** Pronóstico dentro del margen moderado (**{cierre_institucional:.1f}%**). "
+                f"Se requiere acelerar las **{n_critico} actividades con ejecución deficiente**."
+            )
+        else:
+            st.error(
+                f"🔴 **Alerta Directiva:** Tendencia de subejecución crítica. Se proyecta un cierre global de **{cierre_institucional:.1f}%**."
+            )
     
     # Métricas Globales Semáforo
     total_act = len(resumen)
