@@ -1156,21 +1156,19 @@ def ejecutar_dashboard_poi():
     mod_time = os.path.getmtime(EXCEL_PATH)
     fecha_archivo = datetime.fromtimestamp(mod_time).strftime('%d/%m/%Y %H:%M')
 
-    # Header de Período
+    # Header de Período (sin fecha redundante)
     st.header(f"{APP_ICON} Seguimiento de Metas Físicas POI")
     
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    col1, col2, col3 = st.columns([2.5, 2, 1], vertical_alignment="center")
     with col1:
-        st.markdown(f"**Año:** {year} | **Período:** ene - {month_names[last_month]}")
+        st.markdown(f"**Año:** {year} | **Período:** Ene - {month_names[last_month]}")
     with col2:
-        #st.markdown(f"**Última actualización:** {fecha_archivo}")
+        st.caption(f"📁 **Archivo:** `{os.path.basename(EXCEL_PATH)}`")
     with col3:
-        st.caption(f"📁 Archivo: {os.path.basename(EXCEL_PATH)}")
-    with col4:
         if st.button("🔄 Recargar", help="Forzar recarga de datos"):
             st.cache_data.clear()
             st.rerun()
-
+            
     # =========================================================================
     # PREPARACIÓN DE DATOS MACRO INSTITUCIONALES (205 AO ACTIVAS)
     # =========================================================================
