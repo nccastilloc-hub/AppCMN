@@ -3,6 +3,13 @@ import streamlit as st
 import hashlib
 import datetime
 
+# --- CONFIGURACIÓN GLOBAL ÚNICA ---
+st.set_page_config(
+    page_title="Sistema de Gestión IPRESS - INMP",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 

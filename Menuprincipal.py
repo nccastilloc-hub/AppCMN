@@ -6,20 +6,29 @@ import CMN_EG as cmn
 import POI_Dashboard as poi
 
 def mostrar_menu():
-    # --- CONFIGURACIÓN ESTÉTICA ---
-    st.set_page_config(page_title="Sistema de Gestión IPRESS", layout="wide")
     
     # --- MENÚ LATERAL (Identidad y Navegación) ---
     with st.sidebar:
         st.title("🏛️ Gestión IPRESS")
-        # st.image("logo-calado.png", width=200)  # Descomenta cuando tengas el logo
+        st.image("INMP logobicentenario.png", width=200)  # Descomenta cuando tengas el logo
         st.markdown("---")
         
         opcion = st.radio(
             "Seleccione el Módulo:",
             ["🏠 Inicio", "📊 Consistencia CMN-CEPLAN", "📈 Seguimiento POI", "📈 Indicadores Hospitalarios"]
         )
-    
+        st.markdown("---")
+        st.markdown(
+        """
+        <div style="font-size: 0.75rem; color: #888; text-align: center; line-height: 1.4;">
+            Diseño y desarrollo de la<br>
+            <b>Unidad Funcional de Planeamiento - OEPE</b><br>
+            <i>con asistencia de IA Generativa</i>
+        </div>
+        """,
+        unsafe_allow_html=True
+        )
+
     # Botón de salir (corregido)
     # En Menuprincipal.py, dentro de la función mostrar_menu()
     if st.sidebar.button("🚪 Salir del Sistema"):
