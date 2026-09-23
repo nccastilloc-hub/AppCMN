@@ -3,7 +3,7 @@ Dashboard de Seguimiento de Metas Físicas POI del año fiscal - Versión Stream
 Elaborado por: Unidad Funcional de Planeamiento - Oficina Ejecutiva de Planeamiento Estratégico (OEPE)
 Asistente de Desarrollo: Gemini IA/DeepSeek
 Fecha de elaboración: 2026-05-31
-Fecha de actualización: 2026-09-19
+Fecha de actualización: 2026-09-22
 Objetivo: Proporcionar un tablero de control interactivo para la gestión de metas físicas del POI, permitiendo a los usuarios auditar y analizar el desempeño de las actividades operativas en tiempo real.
 ==================================================================
 Módulo Streamlit para integración en el menú principal de Gestión IPRESS.
@@ -21,18 +21,38 @@ import glob
 import re
 
 # ============================================================================
-# CONFIGURACIÓN Y CONSTANTES
+# 1. PARÁMETROS CENTRALIZADOS DESDE CONFIG.PY
 # ============================================================================
+from config import (
+    APP_TITLE,
+    APP_ICON,
+    LOGO_DARK,
+    LOGO_LIGHT,
+    SEMAFORO_CONFIG,
+    UMBRAL_EXCESO,
+    UMBRAL_META_MIN,
+    UMBRAL_RIESGO_MIN,
+    UMBRAL_CRITICO_MIN,
+    PROYECCION_OPTIMA,
+    PROYECCION_MODERADA,
+    MESES_NOMBRE
+)
+
+# Colores mapeados desde el módulo de configuración
+COLOR_MORADO = SEMAFORO_CONFIG["exceso"]["color"]
+COLOR_VERDE = SEMAFORO_CONFIG["meta"]["color"]
+COLOR_AMARILLO = SEMAFORO_CONFIG["riesgo"]["color"]
+COLOR_ROJO = SEMAFORO_CONFIG["critico"]["color"]
+COLOR_GRIS = SEMAFORO_CONFIG["sin_dato"]["color"]
 
 # ==============================================================================
-# 2. FUNCIÓN PARA LEER LA FECHA INTERNA DEL EXCEL
+# 2. FUNCIONES DE UTILIDAD PARA ARCHIVOS Y FECHAS
 # ==============================================================================
 
 def extraer_fecha_corte(ruta_archivo: str) -> str:
     try:
         wb = load_workbook(ruta_archivo, read_only=True)
         if wb.properties and wb.properties.modified:
-            # Restar 5 horas directamente (UTC a UTC-5 Perú)
             from datetime import timedelta
             fecha_local = wb.properties.modified - timedelta(hours=5)
             return fecha_local.strftime("%d/%m/%Y a las %H:%M hrs")
@@ -44,17 +64,6 @@ def extraer_fecha_corte(ruta_archivo: str) -> str:
         return datetime.fromtimestamp(timestamp).strftime("%d/%m/%Y a las %H:%M hrs")
 
     return "No determinada"
-
-# Obtener la fecha del archivo de trabajo
-archivo_datos = "Seguimiento metas fisicas POI.xlsx"  # <-- Cambia por el nombre de tu archivo Excel
-fecha_actualizacion = extraer_fecha_corte(archivo_datos)
-
-# Colores de semáforo institucional
-COLOR_MORADO = "#6f42c1"
-COLOR_VERDE = "#28a745"
-COLOR_AMARILLO = "#ffc107"
-COLOR_ROJO = "#dc3545"
-COLOR_GRIS = "#495057"
 
 def get_base_dir():
     """Detecta si estamos en local o en Streamlit Cloud."""
@@ -69,16 +78,16 @@ def get_base_dir():
 BASE_DIR = get_base_dir()
 
 def formatear_estado(row):
-    """Formatea el estado con un emoji de color según el semáforo."""
+    """Formatea el estado con un emoji de color según el semáforo centralizado."""
     color = row["Color"]
     estado = row["Estado"]
     
     emoji_map = {
-        COLOR_VERDE: "🟢",
-        COLOR_AMARILLO: "🟡", 
-        COLOR_ROJO: "🔴",
-        COLOR_MORADO: "🟣",
-        COLOR_GRIS: "⚫"
+        COLOR_VERDE: SEMAFORO_CONFIG["meta"]["badge"],
+        COLOR_AMARILLO: SEMAFORO_CONFIG["riesgo"]["badge"], 
+        COLOR_ROJO: SEMAFORO_CONFIG["critico"]["badge"],
+        COLOR_MORADO: SEMAFORO_CONFIG["exceso"]["badge"],
+        COLOR_GRIS: SEMAFORO_CONFIG["sin_dato"]["badge"]
     }
     
     emoji = emoji_map.get(color, "⚫")
@@ -86,10 +95,6 @@ def formatear_estado(row):
     estado_limpio = partes[-1] if len(partes) > 1 else estado
     
     return f"{emoji} {estado_limpio}"
-
-# ============================================================================
-# FUNCIONES DE UTILIDAD PARA ARCHIVOS Y MESES
-# ============================================================================
 
 def encontrar_archivo_ceplan():
     """Busca el archivo de POI en el directorio de trabajo."""
@@ -101,6 +106,7 @@ def encontrar_archivo_ceplan():
     patrones = [
         os.path.join(BASE_DIR, "Seguimiento metas fisicas POI.xlsx"),
         os.path.join(BASE_DIR, "Seguimiento metas fisicas POI.xls"),
+        os.path.join(BASE_DIR, "POI_*.xlsx"),
         os.path.join(BASE_DIR, "*.xlsx"),
         os.path.join(BASE_DIR, "*.xls"),
     ]
@@ -119,7 +125,7 @@ def encontrar_archivo_ceplan():
                 archivos.sort(key=os.path.getmtime, reverse=True)
                 return archivos[0]
     
-    st.warning("⚠️ No se encontró el archivo 'Seguimiento metas fisicas POI.xlsx'")
+    st.warning("⚠️ No se encontró el archivo de seguimiento POI")
     st.info(f"📥 Coloca el archivo en: `{BASE_DIR}`")
     return None
 
@@ -154,7 +160,7 @@ def get_month_from_col(col):
     return int(match.group(1)) if match else 99
 
 # ============================================================================
-# FUNCIONES DE CARGA Y PROCESAMIENTO
+# 3. CARGA Y PROCESAMIENTO
 # ============================================================================
 
 @st.cache_data
@@ -198,7 +204,7 @@ def load_data(excel_path):
     df["% Ejecución"] = np.where(
         df["F(RE) Acum"] > 0,
         df["F(SE) Acum"] / df["F(RE) Acum"],
-        0
+        0.0
     )
     
     # Ritmo móvil de los últimos 3 meses
@@ -216,51 +222,45 @@ def load_data(excel_path):
     df["Proyeccion_vs_Meta"] = np.where(
         df["F(RE) Acum"] > 0,
         (df["Proyeccion_Dic"] / df["F(RE) Acum"]) * 100,
-        0
+        0.0
     )
 
     df["Alerta_Proyeccion"] = np.where(
-        df["Proyeccion_vs_Meta"] < 85,
+        df["Proyeccion_vs_Meta"] < PROYECCION_MODERADA,
         "⚠️ Revisar meta",
         np.where(
-            df["Proyeccion_vs_Meta"] > 115,
-            "🟣 Sobreejecución",
-            "🟢 OK"
+            df["Proyeccion_vs_Meta"] > (UMBRAL_EXCESO * 100),
+            f"{SEMAFORO_CONFIG['exceso']['badge']} Sobreejecución",
+            f"{SEMAFORO_CONFIG['meta']['badge']} OK"
         )
     )
     
-    # =========================================================================
-    # CÁLCULOS OFICIALES Y PROYECCIONES (REAL VS. TRUNCADO CEPLAN)
-    # =========================================================================
-    # 1. Avance Real (sin tope para auditar sobreejecución y distorsiones)
+    # Cálculos desacoplados (Real vs Truncado CEPLAN)
     df["% Avance_Real"] = np.where(
         df["F(RE) Acum"] > 0,
         df["F(SE) Acum"] / df["F(RE) Acum"],
         0.0
     )
-    
-    # 2. Pronóstico Lineal Real a Diciembre (meses_totales / meses_transcurridos)
     factor_anual = 12.0 / last_month if last_month > 0 else 1.0
     df["% Proy_Real"] = df["% Avance_Real"] * factor_anual
 
-    # 3. Avance Truncado al 100% (Directiva y Reporte Oficial CEPLAN)
     df["% Avance_CEPLAN"] = np.minimum(1.0, df["% Avance_Real"])
     df["% Proy_CEPLAN"] = np.minimum(1.0, df["% Proy_Real"])
 
     def semaforo(row):
         pct = row["% Ejecución"]
         if row["F(RE) Acum"] == 0:
-            return "Sin ejecución", COLOR_GRIS
+            return SEMAFORO_CONFIG["sin_dato"]["label"], COLOR_GRIS
         elif pct == 0:
-            return "GRIS", COLOR_GRIS
-        elif pct < 0.75:
-            return "ROJO - BAJO", COLOR_ROJO
-        elif pct < 0.95:
-            return "AMARILLO - MEDIO", COLOR_AMARILLO
-        elif pct <= 1.00:
-            return "VERDE - BUENO", COLOR_VERDE
+            return SEMAFORO_CONFIG["sin_dato"]["label"], COLOR_GRIS
+        elif pct < UMBRAL_RIESGO_MIN:
+            return SEMAFORO_CONFIG["critico"]["label"], COLOR_ROJO
+        elif pct < UMBRAL_META_MIN:
+            return SEMAFORO_CONFIG["riesgo"]["label"], COLOR_AMARILLO
+        elif pct <= UMBRAL_EXCESO:
+            return SEMAFORO_CONFIG["meta"]["label"], COLOR_VERDE
         else:
-            return "MORADO - EXCESO", COLOR_MORADO
+            return SEMAFORO_CONFIG["exceso"]["label"], COLOR_MORADO
     
     df[["Estado", "Color"]] = df.apply(semaforo, axis=1, result_type="expand")
     
@@ -301,36 +301,38 @@ def get_resumen(df):
     resumen["% Ejecución"] = np.where(
         resumen["F(RE) Acum"] > 0,
         resumen["F(SE) Acum"] / resumen["F(RE) Acum"],
-        0
+        0.0
     )
     
     def semaforo_agg(row):
         pct = row["% Ejecución"]
-        if row["F(RE) Acum"] == 0:
-            return "Sin ejecución", COLOR_GRIS
-        elif pct == 0:
-            return "GRIS", COLOR_GRIS
-        elif pct < 0.75:
-            return "ROJO - BAJO", COLOR_ROJO
-        elif pct < 0.95:
-            return "AMARILLO - MEDIO", COLOR_AMARILLO
-        elif pct <= 1.00:
-            return "VERDE - BUENO", COLOR_VERDE
+        if row["F(RE) Acum"] == 0 or pct == 0:
+            return SEMAFORO_CONFIG["sin_dato"]["label"], COLOR_GRIS
+        elif pct < UMBRAL_RIESGO_MIN:
+            return SEMAFORO_CONFIG["critico"]["label"], COLOR_ROJO
+        elif pct < UMBRAL_META_MIN:
+            return SEMAFORO_CONFIG["riesgo"]["label"], COLOR_AMARILLO
+        elif pct <= UMBRAL_EXCESO:
+            return SEMAFORO_CONFIG["meta"]["label"], COLOR_VERDE
         else:
-            return "MORADO - EXCESO", COLOR_MORADO
+            return SEMAFORO_CONFIG["exceso"]["label"], COLOR_MORADO
     
     resumen[["Estado", "Color"]] = resumen.apply(semaforo_agg, axis=1, result_type="expand")
 
     resumen["Proyeccion_vs_Meta"] = np.where(
         resumen["F(RE) Acum"] > 0,
         (resumen["Proyeccion_Dic"] / resumen["F(RE) Acum"]) * 100,
-        0
+        0.0
     )
 
     resumen["Alerta_Proyeccion"] = np.where(
-        resumen["Proyeccion_vs_Meta"] < 85,
+        resumen["Proyeccion_vs_Meta"] < PROYECCION_MODERADA,
         "⚠️ Revisar meta",
-        np.where(resumen["Proyeccion_vs_Meta"] > 115, "🟣 Sobreejecución", "🟢 OK")
+        np.where(
+            resumen["Proyeccion_vs_Meta"] > (UMBRAL_EXCESO * 100),
+            f"{SEMAFORO_CONFIG['exceso']['badge']} Sobreejecución",
+            f"{SEMAFORO_CONFIG['meta']['badge']} OK"
+        )
     )
     return resumen
 
@@ -355,41 +357,43 @@ def get_resumen_cc_responsable(df):
     resumen["% Ejecución"] = np.where(
         resumen["F(RE) Acum"] > 0,
         resumen["F(SE) Acum"] / resumen["F(RE) Acum"],
-        0
+        0.0
     )
     
     def semaforo_cc(row):
         pct = row["% Ejecución"]
-        if row["F(RE) Acum"] == 0:
-            return "Sin ejecución", COLOR_GRIS
-        elif pct == 0:
-            return "GRIS", COLOR_GRIS
-        elif pct < 0.75:
-            return "ROJO - BAJO", COLOR_ROJO
-        elif pct < 0.95:
-            return "AMARILLO - MEDIO", COLOR_AMARILLO
-        elif pct <= 1.00:
-            return "VERDE - BUENO", COLOR_VERDE
+        if row["F(RE) Acum"] == 0 or pct == 0:
+            return SEMAFORO_CONFIG["sin_dato"]["label"], COLOR_GRIS
+        elif pct < UMBRAL_RIESGO_MIN:
+            return SEMAFORO_CONFIG["critico"]["label"], COLOR_ROJO
+        elif pct < UMBRAL_META_MIN:
+            return SEMAFORO_CONFIG["riesgo"]["label"], COLOR_AMARILLO
+        elif pct <= UMBRAL_EXCESO:
+            return SEMAFORO_CONFIG["meta"]["label"], COLOR_VERDE
         else:
-            return "MORADO - EXCESO", COLOR_MORADO
+            return SEMAFORO_CONFIG["exceso"]["label"], COLOR_MORADO
     
     resumen[["Estado", "Color"]] = resumen.apply(semaforo_cc, axis=1, result_type="expand")
 
     resumen["Proyeccion_vs_Meta"] = np.where(
         resumen["F(RE) Acum"] > 0,
         (resumen["Proyeccion_Dic"] / resumen["F(RE) Acum"]) * 100,
-        0
+        0.0
     )
     resumen["Alerta_Proyeccion"] = np.where(
-        resumen["Proyeccion_vs_Meta"] < 85,
+        resumen["Proyeccion_vs_Meta"] < PROYECCION_MODERADA,
         "⚠️ Revisar meta",
-        np.where(resumen["Proyeccion_vs_Meta"] > 115, "🟣 Sobreejecución", "🟢 OK")
+        np.where(
+            resumen["Proyeccion_vs_Meta"] > (UMBRAL_EXCESO * 100),
+            f"{SEMAFORO_CONFIG['exceso']['badge']} Sobreejecución",
+            f"{SEMAFORO_CONFIG['meta']['badge']} OK"
+        )
     )
     
     return resumen
 
 # ============================================================================
-# TABS MODULARES
+# 4. TABS MODULARES
 # ============================================================================
 
 def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_names, fecha_archivo, year):
@@ -399,11 +403,11 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
     
     opciones_semaforo = {
         "🔍 Ver Todo el Universo POI": "TODOS",
-        "🟢 En Meta (Alto)": COLOR_VERDE,
-        "🟡 En Riesgo (Medio)": COLOR_AMARILLO,
-        "🔴 Crítico (Bajo)": COLOR_ROJO,
-        "🟣 En Exceso (Sobreejecución)": COLOR_MORADO,
-        "⚪ Sin Ejecución Registrada": COLOR_GRIS
+        f"{SEMAFORO_CONFIG['meta']['badge']} {SEMAFORO_CONFIG['meta']['label']}": COLOR_VERDE,
+        f"{SEMAFORO_CONFIG['riesgo']['badge']} {SEMAFORO_CONFIG['riesgo']['label']}": COLOR_AMARILLO,
+        f"{SEMAFORO_CONFIG['critico']['badge']} {SEMAFORO_CONFIG['critico']['label']}": COLOR_ROJO,
+        f"{SEMAFORO_CONFIG['exceso']['badge']} {SEMAFORO_CONFIG['exceso']['label']}": COLOR_MORADO,
+        f"{SEMAFORO_CONFIG['sin_dato']['badge']} {SEMAFORO_CONFIG['sin_dato']['label']}": COLOR_GRIS
     }
     
     sel_estado = st.radio(
@@ -457,7 +461,9 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
             
             fig_semaforo = go.Figure(data=[
                 go.Bar(
-                    x=["🟢 En Meta", "🟡 En Riesgo", "🔴 Crítico", "🟣 Exceso", "⚫ Sin dato"],
+                    x=[SEMAFORO_CONFIG['meta']['label'], SEMAFORO_CONFIG['riesgo']['label'], 
+                       SEMAFORO_CONFIG['critico']['label'], SEMAFORO_CONFIG['exceso']['label'], 
+                       SEMAFORO_CONFIG['sin_dato']['label']],
                     y=[cant_verde, cant_amarillo, cant_rojo, cant_morado, cant_gris],
                     marker_color=[COLOR_VERDE, COLOR_AMARILLO, COLOR_ROJO, COLOR_MORADO, COLOR_GRIS],
                     text=[cant_verde, cant_amarillo, cant_rojo, cant_morado, cant_gris],
@@ -572,12 +578,9 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
         df_act_sel = df[df["Actividad Operativa"] == sel_actividad]
         info_act = resumen_gerencial[resumen_gerencial["Actividad Operativa"] == sel_actividad].iloc[0]
 
-        # Configuración de meses restantes
-        meses_nombres = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-        meses_restantes = [meses_nombres[m] for m in range(last_month + 1, 13)]
+        meses_restantes = [MESES_NOMBRE[m] for m in range(last_month + 1, 13)]
         n_restantes = len(meses_restantes)
 
-        # Cálculo de promedio móvil
         if last_month >= 3:
             ult_cols = fse_cols[-3:]
             ritmo_mensual = df_act_sel[ult_cols].sum(axis=1).values[0] / 3
@@ -593,17 +596,10 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
         prog_acumulado = info_act['F(RE) Acum']
         proyeccion_cierre = ejec_actual + (ritmo_mensual * n_restantes)
 
-        # -------------------------------------------------------------
-        # AQUÍ SE INSERTA: Meta Total Anual Programada (Ene - Dic)
-        # -------------------------------------------------------------
         todas_fre_cols = [c for c in df.columns if "F(RE)" in c and any(str(i).zfill(2) in c for i in range(1, 13))]
         meta_anual_programada = df_act_sel[todas_fre_cols].sum(axis=1).values[0] if todas_fre_cols else prog_acumulado
         
-        # Cumplimiento proyectado respecto a la meta total del año
         pct_proy = (proyeccion_cierre / meta_anual_programada * 100) if meta_anual_programada > 0 else 0
-
-        # -------------------------------------------------------------
-        # pct_proy = (proyeccion_cierre / prog_acumulado * 100) if prog_acumulado > 0 else 0
 
         # Tarjetas Sombreadas en CSS
         st.markdown("""
@@ -629,7 +625,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
         m3.metric(f"Ejecutado (Ene-{month_names[last_month]})", f"{ejec_actual:,.0f}")
         m4.metric("Cumplimiento Actual", f"{info_act['% Ejecución']*100:.1f}%")
 
-        # Fila 2: Cajas Sombreadas de Proyección Fin de Año (4 columnas para trazabilidad total)
+        # Fila 2: Cajas de Proyección
         c_proy1, c_proy2, c_proy3, c_proy4 = st.columns(4)
 
         with c_proy1:
@@ -643,7 +639,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
 
         with c_proy2:
             st.markdown(f"""
-            <div class="kpi-card" style="border-left: 5px solid #ffc107;">
+            <div class="kpi-card" style="border-left: 5px solid {COLOR_AMARILLO};">
                 <div class="kpi-title">Proyección Cierre (Dic)</div>
                 <div class="kpi-value">{proyeccion_cierre:,.0f}</div>
                 <div class="kpi-sub">Real Ene-{month_names[last_month]} + {n_restantes} m. proy.</div>
@@ -652,7 +648,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
 
         with c_proy3:
             st.markdown(f"""
-            <div class="kpi-card" style="border-left: 5px solid #6c757d;">
+            <div class="kpi-card" style="border-left: 5px solid {COLOR_GRIS};">
                 <div class="kpi-title">Meta Anual Programada</div>
                 <div class="kpi-value">{meta_anual_programada:,.0f}</div>
                 <div class="kpi-sub">Total POI (Ene - Dic)</div>
@@ -660,7 +656,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
             """, unsafe_allow_html=True)
 
         with c_proy4:
-            color_meta = "#28a745" if 95 <= pct_proy <= 105 else ("#dc3545" if pct_proy < 75 else "#ffc107")
+            color_meta = COLOR_VERDE if (UMBRAL_META_MIN * 100) <= pct_proy <= (UMBRAL_EXCESO * 100) else (COLOR_ROJO if pct_proy < (UMBRAL_RIESGO_MIN * 100) else COLOR_AMARILLO)
             st.markdown(f"""
             <div class="kpi-card" style="border-left: 5px solid {color_meta};">
                 <div class="kpi-title">Cumplimiento al Cierre</div>
@@ -671,26 +667,24 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
 
         st.caption("📌 *Proyección calculada con el promedio móvil de los últimos 3 meses para el periodo restante.*")
 
-        # Gráfico Mensual + Barras Proyectadas
         mes_labels = month_names[1:len(fse_cols)+1]
         valores_se = [df_act_sel[c].sum() for c in fse_cols]
         valores_re = [df_act_sel[c].sum() for c in fre_cols]
 
         color_map_evolucion = {
-            "TODOS": "#28a745",
+            "TODOS": COLOR_VERDE,
             COLOR_VERDE: COLOR_VERDE,
             COLOR_AMARILLO: COLOR_AMARILLO,
             COLOR_ROJO: COLOR_ROJO,
             COLOR_MORADO: COLOR_MORADO,
             COLOR_GRIS: COLOR_GRIS
         }
-        bar_color_evolucion = color_map_evolucion.get(color_filtrado, "#28a745")
+        bar_color_evolucion = color_map_evolucion.get(color_filtrado, COLOR_VERDE)
 
         pct_mensual = [(se / re * 100) if re > 0 else 0 for se, re in zip(valores_se, valores_re)]
 
         fig_mensual = make_subplots(specs=[[{"secondary_y": False}]])
 
-        # Barras de lo ejecutado real
         fig_mensual.add_trace(
             go.Bar(
                 x=mes_labels,
@@ -707,7 +701,6 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
             )
         )
 
-        # Barras sombreadas / tramadas proyectadas
         if ritmo_mensual > 0 and n_restantes > 0:
             fig_mensual.add_trace(
                 go.Bar(
@@ -717,7 +710,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
                     marker=dict(
                         color="rgba(23, 162, 184, 0.20)",
                         line=dict(color="#17a2b8", width=1.5),
-                        pattern_shape="/"  # <-- Trama rayada para indicar proyección
+                        pattern_shape="/"
                     ),
                     hovertemplate=(
                         "<b>Proyección %{x}:</b> %{y:,.0f}<br>"
@@ -726,14 +719,13 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
                 )
             )
 
-        # Línea de lo programado
         fig_mensual.add_trace(
             go.Scatter(
                 x=mes_labels,
                 y=valores_re,
                 name="Programado POI F(RE)",
                 mode="lines+markers",
-                line=dict(color="#dc3545", width=2.5),
+                line=dict(color=COLOR_ROJO, width=2.5),
                 hoverinfo="skip"
             )
         )
@@ -751,9 +743,9 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
         st.plotly_chart(fig_mensual, use_container_width=True)
         
         pct_act = info_act['% Ejecución']
-        if pct_act < 0.85:
+        if pct_act < UMBRAL_RIESGO_MIN:
             st.error(f"🚨 **Inconsistencia por Subejecución ({pct_act*100:.1f}%):** Esta actividad se encuentra por debajo de la meta física programada.")
-        elif pct_act > 1.00:
+        elif pct_act > UMBRAL_EXCESO:
             st.warning(f"⚠️ **Alerta por Sobreejecución ({pct_act*100:.1f}%):** La ejecución física supera lo planificado.")
         else:
             st.success("🟢 **Consistencia Correcta:** Avance físico dentro de rangos institucionales óptimos.")
@@ -763,7 +755,14 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
     st.subheader("🏆 Ranking de Gestión por Unidad Orgánica")
     st.markdown("💡 *Haga clic en cualquier Unidad Orgánica para auditar sus metas físicas asignadas.*")
 
-    opciones_semaforo = ["Todos", "🟢 En Meta", "🟡 En Riesgo", "🔴 Crítico", "🟣 Exceso", "⚫ Sin dato"]
+    opciones_semaforo = [
+        "Todos",
+        f"{SEMAFORO_CONFIG['meta']['badge']} {SEMAFORO_CONFIG['meta']['label']}",
+        f"{SEMAFORO_CONFIG['riesgo']['badge']} {SEMAFORO_CONFIG['riesgo']['label']}",
+        f"{SEMAFORO_CONFIG['critico']['badge']} {SEMAFORO_CONFIG['critico']['label']}",
+        f"{SEMAFORO_CONFIG['exceso']['badge']} {SEMAFORO_CONFIG['exceso']['label']}",
+        f"{SEMAFORO_CONFIG['sin_dato']['badge']} {SEMAFORO_CONFIG['sin_dato']['label']}"
+    ]
     filtro_seleccionado = st.multiselect(
         "Filtrar por estado del semáforo",
         options=opciones_semaforo,
@@ -773,11 +772,11 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
 
     if "Todos" not in filtro_seleccionado and filtro_seleccionado:
         color_map = {
-            "🟢 En Meta": COLOR_VERDE,
-            "🟡 En Riesgo": COLOR_AMARILLO,
-            "🔴 Crítico": COLOR_ROJO,
-            "🟣 Exceso": COLOR_MORADO,
-            "⚫ Sin dato": COLOR_GRIS
+            f"{SEMAFORO_CONFIG['meta']['badge']} {SEMAFORO_CONFIG['meta']['label']}": COLOR_VERDE,
+            f"{SEMAFORO_CONFIG['riesgo']['badge']} {SEMAFORO_CONFIG['riesgo']['label']}": COLOR_AMARILLO,
+            f"{SEMAFORO_CONFIG['critico']['badge']} {SEMAFORO_CONFIG['critico']['label']}": COLOR_ROJO,
+            f"{SEMAFORO_CONFIG['exceso']['badge']} {SEMAFORO_CONFIG['exceso']['label']}": COLOR_MORADO,
+            f"{SEMAFORO_CONFIG['sin_dato']['badge']} {SEMAFORO_CONFIG['sin_dato']['label']}": COLOR_GRIS
         }
         colores_seleccionados = [color_map[opt] for opt in filtro_seleccionado if opt in color_map]
         resumen_filtrado = resumen[resumen["Color"].isin(colores_seleccionados)].copy()
@@ -862,7 +861,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         sel_cc_id = tabla_cc.iloc[0]["CC Responsable ID"]
         sel_cc_nombre = tabla_cc.iloc[0]["CC Responsable"]
 
-    # --- 5. KPIS DE LA UNIDAD SELECCIONADA ---
+    # --- KPIS DE LA UNIDAD SELECCIONADA ---
     st.markdown("---")
     st.subheader(f"📊 Detalle de: {sel_cc_nombre}")
 
@@ -886,11 +885,11 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
         col1.metric("📋 Total", total_unidad)
         col2.metric("📈 Promedio", f"{promedio_ponderado:.1f}%")
-        col3.metric("🟢 En Meta", verde_unidad)
-        col4.metric("🟡 En Riesgo", amarillo_unidad)
-        col5.metric("🔴 Crítico", rojo_unidad)
-        col6.metric("🟣 Exceso", morado_unidad)
-        col7.metric("⚫ Sin dato", gris_unidad)
+        col3.metric(f"{SEMAFORO_CONFIG['meta']['badge']} En Meta", verde_unidad)
+        col4.metric(f"{SEMAFORO_CONFIG['riesgo']['badge']} En Riesgo", amarillo_unidad)
+        col5.metric(f"{SEMAFORO_CONFIG['critico']['badge']} Crítico", rojo_unidad)
+        col6.metric(f"{SEMAFORO_CONFIG['exceso']['badge']} Exceso", morado_unidad)
+        col7.metric(f"{SEMAFORO_CONFIG['sin_dato']['badge']} Sin dato", gris_unidad)
 
         st.markdown("#### 📋 Cartera de Actividades")
 
@@ -938,7 +937,6 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         else:
             sel_act = tabla_act.iloc[0]["Actividad Operativa"]
 
-        # --- SECCIÓN DETALLE Y PROYECCIÓN AL CIERRE (IDÉNTICO A TAB 1) ---
         st.markdown("---")
         st.markdown(f"### 📅 Evolución Mensual y Proyección al Cierre")
         st.markdown(f"**Actividad Auditada:** `{sel_act}`")
@@ -946,12 +944,9 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         df_act_sel = df[df["Actividad Operativa"] == sel_act]
         info_act = resumen_filtrado_cc[resumen_filtrado_cc["Actividad Operativa"] == sel_act].iloc[0]
 
-        # Configuración de meses restantes
-        meses_nombres = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-        meses_restantes = [meses_nombres[m] for m in range(last_month + 1, 13)]
+        meses_restantes = [MESES_NOMBRE[m] for m in range(last_month + 1, 13)]
         n_restantes = len(meses_restantes)
 
-        # Cálculo de promedio móvil
         if last_month >= 3:
             ult_cols = fse_cols[-3:]
             ritmo_mensual = df_act_sel[ult_cols].sum(axis=1).values[0] / 3
@@ -966,25 +961,20 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         ejec_actual = info_act['F(SE) Acum']
         prog_acumulado = info_act['F(RE) Acum']
         proyeccion_cierre = ejec_actual + (ritmo_mensual * n_restantes)
-        # -------------------------------------------------------------
-        # AQUÍ SE INSERTA: Meta Total Anual Programada (Ene - Dic)
-        # -------------------------------------------------------------
+
         todas_fre_cols = [c for c in df.columns if "F(RE)" in c and any(str(i).zfill(2) in c for i in range(1, 13))]
         meta_anual_programada = df_act_sel[todas_fre_cols].sum(axis=1).values[0] if todas_fre_cols else prog_acumulado
         
-        # Cumplimiento proyectado respecto a la meta total del año
         pct_proy = (proyeccion_cierre / meta_anual_programada * 100) if meta_anual_programada > 0 else 0
-        # -------------------------------------------------------------
-        #pct_proy = (proyeccion_cierre / prog_acumulado * 100) if prog_acumulado > 0 else 0
 
-        # Fila 1: Métricas de Ejecución Actual
+        # Fila 1: Métricas
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Unidad de Medida", str(info_act["Unidad de Medida"]))
-        m2.metric(f"Programado (Ene-{month_names[last_month]})", f"{prog_acumulado:,.0f}")
-        m3.metric(f"Ejecutado (Ene-{month_names[last_month]})", f"{ejec_actual:,.0f}")
+        m2.metric(f"Programado (ene-{month_names[last_month]})", f"{prog_acumulado:,.0f}")
+        m3.metric(f"Ejecutado (ene-{month_names[last_month]})", f"{ejec_actual:,.0f}")
         m4.metric("Cumplimiento Actual", f"{info_act['% Ejecución']*100:.1f}%")
 
-        # Fila 2: Cajas Sombreadas de Proyección Fin de Año (4 columnas para trazabilidad total)
+        # Fila 2: Cajas Sombreadas
         c_proy1, c_proy2, c_proy3, c_proy4 = st.columns(4)
 
         with c_proy1:
@@ -998,16 +988,16 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
 
         with c_proy2:
             st.markdown(f"""
-            <div class="kpi-card" style="border-left: 5px solid #ffc107;">
+            <div class="kpi-card" style="border-left: 5px solid {COLOR_AMARILLO};">
                 <div class="kpi-title">Proyección Cierre (Dic)</div>
                 <div class="kpi-value">{proyeccion_cierre:,.0f}</div>
-                <div class="kpi-sub">Real Ene-{month_names[last_month]} + {n_restantes} m. proy.</div>
+                <div class="kpi-sub">Real ene-{month_names[last_month]} + {n_restantes} m. proy.</div>
             </div>
             """, unsafe_allow_html=True)
 
         with c_proy3:
             st.markdown(f"""
-            <div class="kpi-card" style="border-left: 5px solid #6c757d;">
+            <div class="kpi-card" style="border-left: 5px solid {COLOR_GRIS};">
                 <div class="kpi-title">Meta Anual Programada</div>
                 <div class="kpi-value">{meta_anual_programada:,.0f}</div>
                 <div class="kpi-sub">Total POI (Ene - Dic)</div>
@@ -1015,7 +1005,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
             """, unsafe_allow_html=True)
 
         with c_proy4:
-            color_meta = "#28a745" if 95 <= pct_proy <= 105 else ("#dc3545" if pct_proy < 75 else "#ffc107")
+            color_meta = COLOR_VERDE if (UMBRAL_META_MIN * 100) <= pct_proy <= (UMBRAL_EXCESO * 100) else (COLOR_ROJO if pct_proy < (UMBRAL_RIESGO_MIN * 100) else COLOR_AMARILLO)
             st.markdown(f"""
             <div class="kpi-card" style="border-left: 5px solid {color_meta};">
                 <div class="kpi-title">Cumplimiento al Cierre</div>
@@ -1026,7 +1016,6 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
 
         st.caption("📌 *Proyección calculada con el promedio móvil de los últimos 3 meses para el periodo restante.*")
 
-        # Preparación de datos del gráfico
         color_act = info_act["Color"]
         mes_labels = month_names[1:len(fse_cols)+1]
         valores_se = [df_act_sel[c].sum() for c in fse_cols]
@@ -1035,7 +1024,6 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
 
         fig_mensual = make_subplots(specs=[[{"secondary_y": False}]])
 
-        # 1. Barras de lo ejecutado real (respetando el color del semáforo de la actividad)
         fig_mensual.add_trace(
             go.Bar(
                 x=mes_labels,
@@ -1052,7 +1040,6 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
             )
         )
 
-        # 2. Barras tramadas de proyección (Sep-Dic)
         if ritmo_mensual > 0 and n_restantes > 0:
             fig_mensual.add_trace(
                 go.Bar(
@@ -1071,14 +1058,13 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
                 )
             )
 
-        # 3. Línea de lo programado POI
         fig_mensual.add_trace(
             go.Scatter(
                 x=mes_labels,
                 y=valores_re,
                 name="Programado POI F(RE)",
                 mode="lines+markers",
-                line=dict(color="#dc3545", width=2.5),
+                line=dict(color=COLOR_ROJO, width=2.5),
                 hoverinfo="skip"
             )
         )
@@ -1095,11 +1081,10 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         )
         st.plotly_chart(fig_mensual, use_container_width=True)
 
-        # Mensajes de consistencia
         pct_act = info_act['% Ejecución']
-        if pct_act < 0.85:
+        if pct_act < UMBRAL_RIESGO_MIN:
             st.error(f"🚨 **Inconsistencia por Subejecución ({pct_act*100:.1f}%):** Esta actividad se encuentra críticamente por debajo de la meta física.")
-        elif pct_act > 1.00:
+        elif pct_act > UMBRAL_EXCESO:
             st.warning(f"⚠️ **Alerta por Sobreejecución ({pct_act*100:.1f}%):** La ejecución física supera lo planificado.")
         else:
             st.success("🟢 **Consistencia Correcta:** Avance físico dentro de los rangos óptimos.")
@@ -1109,38 +1094,16 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
             st.rerun()
 
 # ============================================================================
-# FUNCIÓN PRINCIPAL
+# 5. FUNCIÓN PRINCIPAL
 # ============================================================================
 
 def ejecutar_dashboard_poi():
     """Punto de entrada de la aplicación Streamlit."""
-    # --- CABECERA INSTITUCIONAL MINSA - INMP ---
-    archivo_datos = "Seguimiento metas fisicas POI.xlsx"
-    fecha_actualizacion = extraer_fecha_corte(archivo_datos)
-    
-    col_minsa, col_titulo, col_inmp = st.columns([2.2, 5, 1.5], vertical_alignment="center")
-
-    with col_minsa:
-        if os.path.exists("MINSA logo1.png"):
-            st.image("MINSA logo1.png", use_container_width=True)
-
-    with col_titulo:
-        st.markdown("<h2 style='text-align: center; margin-bottom: 0;'>Instituto Nacional Materno Perinatal</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #555; margin-top: 2px; margin-bottom: 4px; font-weight: 500;'>Oficina Ejecutiva de Planeamiento Estratégico</p>", unsafe_allow_html=True)
-        st.markdown(f"<p style='text-align: center; font-size: 0.85rem; color: #777;'>📅 Última actualización: <b>{fecha_actualizacion}</b></p>", unsafe_allow_html=True)
-
-    with col_inmp:
-        if os.path.exists("logo-inmp.png"):
-            st.image("logo-inmp.png", width=120)
-
-    st.divider()
-
-    # --- Continúa la carga del archivo y el resto del dashboard ---
-
     archivo_encontrado = encontrar_archivo_ceplan()
     
     if archivo_encontrado:
         EXCEL_PATH = archivo_encontrado
+        fecha_actualizacion = extraer_fecha_corte(EXCEL_PATH)
         st.sidebar.success(f"✅ Archivo: {os.path.basename(EXCEL_PATH)}")
         st.sidebar.caption(f"📅 **Corte de datos:** {fecha_actualizacion}")
     else:
@@ -1149,7 +1112,28 @@ def ejecutar_dashboard_poi():
         if not os.path.exists("POI"):
             os.makedirs("POI")
         return
-    
+
+    # --- CABECERA INSTITUCIONAL CON LOGO PARAMETRIZADO ---
+    col_minsa, col_titulo, col_inmp = st.columns([2.2, 5, 1.5], vertical_alignment="center")
+
+    with col_minsa:
+        if os.path.exists("MINSA logo1.png"):
+            st.image("MINSA logo1.png", use_container_width=True)
+
+    with col_titulo:
+        st.markdown(f"<h2 style='text-align: center; margin-bottom: 0;'>{APP_TITLE}</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #555; margin-top: 2px; margin-bottom: 4px; font-weight: 500;'>Oficina Ejecutiva de Planeamiento Estratégico</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='text-align: center; font-size: 0.85rem; color: #777;'>📅 Última actualización: <b>{fecha_actualizacion}</b></p>", unsafe_allow_html=True)
+
+    with col_inmp:
+        # Usa el logo nuevo en blanco si existe en assets, o retrocede al clásico
+        if os.path.exists(LOGO_DARK):
+            st.image(LOGO_DARK, width=120)
+        elif os.path.exists("logo-inmp.png"):
+            st.image("logo-inmp.png", width=120)
+
+    st.divider()
+
     try:
         df = load_data(EXCEL_PATH)
         resumen = get_resumen(df)
@@ -1168,18 +1152,16 @@ def ejecutar_dashboard_poi():
     if last_month < 1 or last_month > 12:
         last_month = datetime.now().month
     
-    month_names = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", 
-                   "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-
+    month_names = [""] + [MESES_NOMBRE[i] for i in range(1, 13)]
     mod_time = os.path.getmtime(EXCEL_PATH)
     fecha_archivo = datetime.fromtimestamp(mod_time).strftime('%d/%m/%Y %H:%M')
 
-    # Header
-    st.header("📊 Seguimiento de Metas Físicas POI")
+    # Header de Período
+    st.header(f"{APP_ICON} Seguimiento de Metas Físicas POI")
     
     col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     with col1:
-        st.markdown(f"**Año:** {year} | **Período:** Ene - {month_names[last_month]}")
+        st.markdown(f"**Año:** {year} | **Período:** ene - {month_names[last_month]}")
     with col2:
         st.markdown(f"**Última actualización:** {fecha_archivo}")
     with col3:
@@ -1192,15 +1174,13 @@ def ejecutar_dashboard_poi():
     # =========================================================================
     # PREPARACIÓN DE DATOS MACRO INSTITUCIONALES (205 AO ACTIVAS)
     # =========================================================================
-    # Filtro estricto de actividades con programación acumulada activa
     ao_activas = df[(df["Activo AO"] == "SI") & (df["F(RE) Acum"] > 0)].copy()
-    n_activas = len(ao_activas)
 
-    # Conteo de semáforo a agosto (base de 205 AO)
-    n_exceso = (ao_activas["% Avance_Real"] > 1.00).sum()
-    n_meta = ((ao_activas["% Avance_Real"] >= 0.95) & (ao_activas["% Avance_Real"] <= 1.00)).sum()
-    n_riesgo = ((ao_activas["% Avance_Real"] >= 0.75) & (ao_activas["% Avance_Real"] < 0.95)).sum()
-    n_critico = ((ao_activas["% Avance_Real"] > 0.0) & (ao_activas["% Avance_Real"] < 0.75)).sum()
+    # Conteo con umbrales de config.py
+    n_exceso = (ao_activas["% Avance_Real"] > UMBRAL_EXCESO).sum()
+    n_meta = ((ao_activas["% Avance_Real"] >= UMBRAL_META_MIN) & (ao_activas["% Avance_Real"] <= UMBRAL_EXCESO)).sum()
+    n_riesgo = ((ao_activas["% Avance_Real"] >= UMBRAL_RIESGO_MIN) & (ao_activas["% Avance_Real"] < UMBRAL_META_MIN)).sum()
+    n_critico = ((ao_activas["% Avance_Real"] > UMBRAL_CRITICO_MIN) & (ao_activas["% Avance_Real"] < UMBRAL_RIESGO_MIN)).sum()
     n_sin_dato = (ao_activas["% Avance_Real"] == 0.0).sum()
 
     # =========================================================================
@@ -1216,7 +1196,7 @@ def ejecutar_dashboard_poi():
             criterio_ceplan = st.toggle(
                 "🔒 Truncar avances al 100% (Norma CEPLAN)",
                 value=False,
-                help="Activado: Aplica el tope del 100% de la directiva CEPLAN para auditorías. Desactivado: Muestra la sobreejecución y el avance real del gasto operativo."
+                help="Activado: Aplica el tope del 100 % de la directiva CEPLAN para auditorías. Desactivado: Muestra la sobreejecución y el avance real del gasto operativo."
             )
 
         if criterio_ceplan:
@@ -1245,12 +1225,12 @@ def ejecutar_dashboard_poi():
                 label="🎯 Pronóstico Cierre Anual",
                 value=f"{cierre_institucional:.1f} %",
                 delta=f"{delta_val:+.1f}% estimado",
-                delta_color="normal" if cierre_institucional >= 90 else "inverse"
+                delta_color="normal" if cierre_institucional >= PROYECCION_MODERADA else "inverse"
             )
             
         with col_kpi3:
             st.metric(
-                label="🟣 Actividades en Exceso (> 100%)",
+                label=f"{SEMAFORO_CONFIG['exceso']['badge']} {SEMAFORO_CONFIG['exceso']['label']}",
                 value=f"{n_exceso} AO",
                 help="Metas físicas que ya superaron lo programado para el período",
                 delta="Revisión de consistencia",
@@ -1259,19 +1239,19 @@ def ejecutar_dashboard_poi():
             
         with col_kpi4:
             st.metric(
-                label="🚨 Alerta Crítica (< 75%)",
+                label=f"{SEMAFORO_CONFIG['critico']['badge']} Alerta Crítica (< 75%)",
                 value=f"{n_critico + n_sin_dato} AO",
                 delta=f"{n_sin_dato} sin ejecución",
                 delta_color="inverse"
             )
 
-        # Diagnóstico gerencial automático en una sola línea
-        if cierre_institucional >= 95 and not criterio_ceplan:
+        # Diagnóstico gerencial dinámico
+        if cierre_institucional >= PROYECCION_OPTIMA and not criterio_ceplan:
             st.success(
                 f"🟢 **Diagnóstico:** El INMP proyecta una ejecución real anual del **{cierre_institucional:.1f}%**. "
                 f"Existen **{n_exceso} actividades en exceso** que impulsan el promedio y ameritan reprogramación."
             )
-        elif cierre_institucional >= 85:
+        elif cierre_institucional >= PROYECCION_MODERADA:
             st.warning(
                 f"🟡 **Diagnóstico:** Pronóstico dentro del margen moderado (**{cierre_institucional:.1f}%**). "
                 f"Se requiere acelerar las **{n_critico} actividades con ejecución deficiente**."
@@ -1291,36 +1271,36 @@ def ejecutar_dashboard_poi():
     
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("📊 Total", total_act)
-    c2.metric("🟢 En Meta", act_verde)
-    c3.metric("🟡 En Riesgo", act_amarillo)
-    c4.metric("🔴 Crítico", act_rojo)
-    c5.metric("🟣 Exceso", act_morado)
-    c6.metric("⚫ Sin dato", act_gris)
+    c2.metric(f"{SEMAFORO_CONFIG['meta']['badge']} En Meta", act_verde)
+    c3.metric(f"{SEMAFORO_CONFIG['riesgo']['badge']} En Riesgo", act_amarillo)
+    c4.metric(f"{SEMAFORO_CONFIG['critico']['badge']} Crítico", act_rojo)
+    c5.metric(f"{SEMAFORO_CONFIG['exceso']['badge']} Exceso", act_morado)
+    c6.metric(f"{SEMAFORO_CONFIG['sin_dato']['badge']} Sin dato", act_gris)
         
     st.markdown("##### 📘 **Criterios de semaforización (Directiva CEPLAN):**")
     st.markdown(
-        "<div style='background-color:#1e1e1e; padding:10px; border-radius:8px; "
-        "border-left:4px solid #17a2b8; font-size:14px; color:#e0e0e0; margin-bottom:15px;'>"
-        "🟢 <b>En Meta:</b> 95% - 100%  |  "
-        "🟡 <b>En Riesgo:</b> 75% - 95%  |  "
-        "🔴 <b>Crítico:</b> &lt; 75%  |  "
-        "🟣 <b>Exceso:</b> &gt; 100%  |  "
-        "⚫ <b>Sin dato:</b> 0%"
-        "</div>",
+        f"<div style='background-color:#1e1e1e; padding:10px; border-radius:8px; "
+        f"border-left:4px solid #17a2b8; font-size:14px; color:#e0e0e0; margin-bottom:15px;'>"
+        f"{SEMAFORO_CONFIG['meta']['badge']} <b>{SEMAFORO_CONFIG['meta']['label']}</b>  |  "
+        f"{SEMAFORO_CONFIG['riesgo']['badge']} <b>{SEMAFORO_CONFIG['riesgo']['label']}</b>  |  "
+        f"{SEMAFORO_CONFIG['critico']['badge']} <b>{SEMAFORO_CONFIG['critico']['label']}</b>  |  "
+        f"{SEMAFORO_CONFIG['exceso']['badge']} <b>{SEMAFORO_CONFIG['exceso']['label']}</b>  |  "
+        f"{SEMAFORO_CONFIG['sin_dato']['badge']} <b>{SEMAFORO_CONFIG['sin_dato']['label']}</b>"
+        f"</div>",
         unsafe_allow_html=True
     )
 
     with st.expander("📖 Ver detalle completo de la Directiva CEPLAN"):
-        st.markdown("""
+        st.markdown(f"""
         **Criterios de semaforización para el seguimiento de metas físicas:**
-        - **🟢 En Meta (Alto):** Ejecución entre 95% y 100%.
-        - **🟡 En Riesgo (Medio):** Ejecución entre 75% y 95%.
-        - **🔴 Crítico (Bajo):** Ejecución inferior al 75%.
-        - **🟣 Exceso (Sobreejecución):** Ejecución superior al 100%.
-        - **⚫ Sin dato:** Actividades sin ejecución o programación en cero.
+        - **{SEMAFORO_CONFIG['meta']['badge']} {SEMAFORO_CONFIG['meta']['label']}:** {SEMAFORO_CONFIG['meta']['diagnostico']}.
+        - **{SEMAFORO_CONFIG['riesgo']['badge']} {SEMAFORO_CONFIG['riesgo']['label']}:** {SEMAFORO_CONFIG['riesgo']['diagnostico']}.
+        - **{SEMAFORO_CONFIG['critico']['badge']} {SEMAFORO_CONFIG['critico']['label']}:** {SEMAFORO_CONFIG['critico']['diagnostico']}.
+        - **{SEMAFORO_CONFIG['exceso']['badge']} {SEMAFORO_CONFIG['exceso']['label']}:** {SEMAFORO_CONFIG['exceso']['diagnostico']}.
+        - **{SEMAFORO_CONFIG['sin_dato']['badge']} {SEMAFORO_CONFIG['sin_dato']['label']}:** {SEMAFORO_CONFIG['sin_dato']['diagnostico']}.
         """)
 
-    # Renderizado limpio de pestañas
+    # Renderizado de pestañas
     tab1, tab2 = st.tabs(["Programa / Categoría Presupuestal", "Unidad Orgánica"])
     
     with tab1:
