@@ -1163,7 +1163,7 @@ def ejecutar_dashboard_poi():
     with col1:
         st.markdown(f"**Año:** {year} | **Período:** ene - {month_names[last_month]}")
     with col2:
-        st.markdown(f"**Última actualización:** {fecha_archivo}")
+        #st.markdown(f"**Última actualización:** {fecha_archivo}")
     with col3:
         st.caption(f"📁 Archivo: {os.path.basename(EXCEL_PATH)}")
     with col4:
