@@ -471,7 +471,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
                 )
             ])
             fig_semaforo.update_layout(title="Distribución del Segmento Seleccionado", height=300, margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig_semaforo, use_container_width=True)
+            st.plotly_chart(fig_semaforo, use_container_width=True, key="fig_semaforo_tab1")
         
         with col2:
             if es_vista_macro:
@@ -521,7 +521,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
                 margin=dict(l=150, r=50, t=40, b=30),
                 height=380
             )
-            st.plotly_chart(fig_dinamico, use_container_width=True)
+            st.plotly_chart(fig_dinamico, use_container_width=True, key="fig_dinamico_tab1")
     
     st.markdown("---")
     st.subheader("📋 Control de Actividades Operativas")
@@ -740,7 +740,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
                 categoryarray=month_names[1:]
             )
         )
-        st.plotly_chart(fig_mensual, use_container_width=True)
+        st.plotly_chart(fig_mensual, use_container_width=True, key="fig_mensual_tab1_cat")
         
         pct_act = info_act['% Ejecución']
         if pct_act < UMBRAL_RIESGO_MIN:
@@ -813,7 +813,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         margin=dict(l=250, r=50, t=40, b=20),
         height=max(400, len(df_cc_graf) * 25)
     )
-    st.plotly_chart(fig_cc, use_container_width=True)
+    st.plotly_chart(fig_cc, use_container_width=True, key="fig_ranking_cc_tab2")
 
     st.markdown("---")
     st.subheader("📋 Lista de Unidades Orgánicas")
@@ -1079,7 +1079,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
                 categoryarray=month_names[1:]
             )
         )
-        st.plotly_chart(fig_mensual, use_container_width=True)
+        st.plotly_chart(fig_mensual, use_container_width=True, key="fig_mensual_tab2_cc")
 
         pct_act = info_act['% Ejecución']
         if pct_act < UMBRAL_RIESGO_MIN:
