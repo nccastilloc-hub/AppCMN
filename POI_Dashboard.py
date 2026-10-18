@@ -471,7 +471,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
                 )
             ])
             fig_semaforo.update_layout(title="Distribución del Segmento Seleccionado", height=300, margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig_semaforo, use_container_width=True)
+            st.plotly_chart(fig_semaforo, use_container_width=True, key="fig_semaforo_tab1")
         
         with col2:
             if es_vista_macro:
@@ -521,7 +521,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
                 margin=dict(l=150, r=50, t=40, b=30),
                 height=380
             )
-            st.plotly_chart(fig_dinamico, use_container_width=True)
+            st.plotly_chart(fig_dinamico, use_container_width=True, key="fig_dinamico_tab1")
     
     st.markdown("---")
     st.subheader("📋 Control de Actividades Operativas")
@@ -740,7 +740,7 @@ def tab_resumen_categoria(df, resumen, fse_cols, fre_cols, last_month, month_nam
                 categoryarray=month_names[1:]
             )
         )
-        st.plotly_chart(fig_mensual, use_container_width=True)
+        st.plotly_chart(fig_mensual, use_container_width=True, key="fig_mensual_tab1_cat")
         
         pct_act = info_act['% Ejecución']
         if pct_act < UMBRAL_RIESGO_MIN:
@@ -813,7 +813,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
         margin=dict(l=250, r=50, t=40, b=20),
         height=max(400, len(df_cc_graf) * 25)
     )
-    st.plotly_chart(fig_cc, use_container_width=True)
+    st.plotly_chart(fig_cc, use_container_width=True, key="fig_ranking_cc_tab2")
 
     st.markdown("---")
     st.subheader("📋 Lista de Unidades Orgánicas")
@@ -1079,7 +1079,7 @@ def tab_unidad_organica(df, resumen, resumen_cc, fse_cols, fre_cols, last_month,
                 categoryarray=month_names[1:]
             )
         )
-        st.plotly_chart(fig_mensual, use_container_width=True)
+        st.plotly_chart(fig_mensual, use_container_width=True, key="fig_mensual_tab2_cc")
 
         pct_act = info_act['% Ejecución']
         if pct_act < UMBRAL_RIESGO_MIN:
@@ -1113,27 +1113,6 @@ def ejecutar_dashboard_poi():
             os.makedirs("POI")
         return
 
-    # --- CABECERA INSTITUCIONAL CON LOGO PARAMETRIZADO ---
-    col_minsa, col_titulo, col_inmp = st.columns([2.2, 5, 1.5], vertical_alignment="center")
-
-    with col_minsa:
-        if os.path.exists("MINSA logo1.png"):
-            st.image("MINSA logo1.png", use_container_width=True)
-
-    with col_titulo:
-        st.markdown(f"<h2 style='text-align: center; margin-bottom: 0;'>{APP_TITLE}</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #555; margin-top: 2px; margin-bottom: 4px; font-weight: 500;'>Oficina Ejecutiva de Planeamiento Estratégico</p>", unsafe_allow_html=True)
-        st.markdown(f"<p style='text-align: center; font-size: 0.85rem; color: #777;'>📅 Última actualización: <b>{fecha_actualizacion}</b></p>", unsafe_allow_html=True)
-
-    with col_inmp:
-        # Usa el logo nuevo en blanco si existe en assets, o retrocede al clásico
-        if os.path.exists(LOGO_DARK):
-            st.image(LOGO_DARK, width=120)
-        elif os.path.exists("logo-inmp.png"):
-            st.image("logo-inmp.png", width=120)
-
-    st.divider()
-
     try:
         df = load_data(EXCEL_PATH)
         resumen = get_resumen(df)
@@ -1156,21 +1135,15 @@ def ejecutar_dashboard_poi():
     mod_time = os.path.getmtime(EXCEL_PATH)
     fecha_archivo = datetime.fromtimestamp(mod_time).strftime('%d/%m/%Y %H:%M')
 
-    # Header de Período
-    st.header(f"{APP_ICON} Seguimiento de Metas Físicas POI")
+    # --- HEADER MODULAR ---
+    from Header_Modular import mostrar_cabecera
     
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-    with col1:
-        st.markdown(f"**Año:** {year} | **Período:** ene - {month_names[last_month]}")
-    with col2:
-        st.markdown(f"**Última actualización:** {fecha_archivo}")
-    with col3:
-        st.caption(f"📁 Archivo: {os.path.basename(EXCEL_PATH)}")
-    with col4:
-        if st.button("🔄 Recargar", help="Forzar recarga de datos"):
-            st.cache_data.clear()
-            st.rerun()
-
+    mostrar_cabecera(
+        titulo="Consola Gerencial de Operaciones - INMP",
+        subtitulo="Seguimiento de Metas Físicas POI",
+        fecha_actualizacion=fecha_archivo # O la variable que uses para la fecha
+    )
+            
     # =========================================================================
     # PREPARACIÓN DE DATOS MACRO INSTITUCIONALES (205 AO ACTIVAS)
     # =========================================================================

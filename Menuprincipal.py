@@ -4,6 +4,7 @@ import os
 import signal
 import CMN_EG as cmn
 import POI_Dashboard as poi
+import modules.Dash_Indicadores as ind  # <-- NUEVO IMPORT
 
 def mostrar_menu():
     
@@ -54,5 +55,6 @@ def mostrar_menu():
         poi.ejecutar_dashboard_poi()
     
     elif opcion == "📈 Indicadores Hospitalarios":
-        st.header("Histórico de Indicadores (10 años)")
-        st.write("⌛ Próximamente: Curvas de tendencia y análisis epidemiológico.")
+        # st.header("Histórico de Indicadores (10 años)")
+        # st.write("⌛ Próximamente: Curvas de tendencia y análisis epidemiológico.")
+        ind.ejecutar_dashboard_indicadores()
